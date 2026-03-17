@@ -128,10 +128,6 @@ function groupMatchesByRound(matches) {
 }
 
 function TeamBadge({ teamSlug, competitionKey, teamName, logoManifest, logoUrl = null }) {
-  if (logoUrl) {
-    return <img className="team-badge-image" src={logoUrl} alt={`${teamName} escudo`} />;
-  }
-
   const localLogo = getLocalLogoPath({
     competitionKey,
     teamSlug,
@@ -144,6 +140,10 @@ function TeamBadge({ teamSlug, competitionKey, teamName, logoManifest, logoUrl =
     return <img className="team-badge-image" src={localLogo} alt={`${teamName} escudo`} />;
   }
 
+  if (logoUrl) {
+    return <img className="team-badge-image" src={logoUrl} alt={`${teamName} escudo`} />;
+  }
+
   if (logoClass) {
     return <i className={logoClass} aria-hidden="true" />;
   }
@@ -152,10 +152,6 @@ function TeamBadge({ teamSlug, competitionKey, teamName, logoManifest, logoUrl =
 }
 
 function StandingsBadge({ entry, competitionKey, logoManifest }) {
-  if (entry.logoClass?.startsWith('http')) {
-    return <img className="team-badge-image" src={entry.logoClass} alt={`${entry.teamName} escudo`} />;
-  }
-
   const localLogo = getLocalLogoPath({
     competitionKey,
     teamSlug: entry.teamSlug,
@@ -165,6 +161,10 @@ function StandingsBadge({ entry, competitionKey, logoManifest }) {
 
   if (localLogo) {
     return <img className="team-badge-image" src={localLogo} alt={`${entry.teamName} escudo`} />;
+  }
+
+  if (entry.logoClass?.startsWith('http')) {
+    return <img className="team-badge-image" src={entry.logoClass} alt={`${entry.teamName} escudo`} />;
   }
 
   if (entry.logoClass) {

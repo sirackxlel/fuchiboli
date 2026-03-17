@@ -42,5 +42,25 @@
     "arsenal": "/team-logos/premier/arsenal.svg",
     "leeds-united": "/team-logos/premier/leeds-united.svg",
     "everton": "/team-logos/premier/everton.svg"
+  },
+  "bundesliga": {
+    "1-fc-heidenheim-1846": "/team-logos/bundesliga/1-fc-heidenheim-1846.svg",
+    "1-fc-koeln": "/team-logos/bundesliga/1-fc-koeln.svg",
+    "1-fc-union-berlin": "/team-logos/bundesliga/1-fc-union-berlin.svg",
+    "1-fsv-mainz-05": "/team-logos/bundesliga/1-fsv-mainz-05.svg",
+    "bayer-04-leverkusen": "/team-logos/bundesliga/bayer-04-leverkusen.svg",
+    "borussia-dortmund": "/team-logos/bundesliga/borussia-dortmund.svg",
+    "borussia-moenchengladbach": "/team-logos/bundesliga/borussia-moenchengladbach.svg",
+    "eintracht-frankfurt": "/team-logos/bundesliga/eintracht-frankfurt.svg",
+    "fc-augsburg": "/team-logos/bundesliga/fc-augsburg.svg",
+    "fc-bayern-muenchen": "/team-logos/bundesliga/fc-bayern-muenchen.svg",
+    "fc-st-pauli": "/team-logos/bundesliga/fc-st-pauli.svg",
+    "hamburger-sv": "/team-logos/bundesliga/hamburger-sv.svg",
+    "rb-leipzig": "/team-logos/bundesliga/rb-leipzig.svg",
+    "sport-club-freiburg": "/team-logos/bundesliga/sport-club-freiburg.svg",
+    "sv-werder-bremen": "/team-logos/bundesliga/sv-werder-bremen.svg",
+    "tsg-hoffenheim": "/team-logos/bundesliga/tsg-hoffenheim.svg",
+    "vfb-stuttgart": "/team-logos/bundesliga/vfb-stuttgart.svg",
+    "vfl-wolfsburg": "/team-logos/bundesliga/vfl-wolfsburg.svg"
   }
 }
