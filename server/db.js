@@ -1,0 +1,81 @@
+import Database from 'better-sqlite3';
+
+const db = new Database('C:/Users/Usuario/base_futbol.db');
+
+db.pragma('foreign_keys = ON');
+
+function ensureColumn(tableName, columnName, definition) {
+  const columns = db.prepare(`PRAGMA table_info(${tableName})`).all();
+  const hasColumn = columns.some((column) => column.name === columnName);
+
+  if (!hasColumn) {
+    db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+  }
+}
+
+ensureColumn('matches', 'home_score', 'INTEGER');
+ensureColumn('matches', 'away_score', 'INTEGER');
+ensureColumn('matches', 'status_detail', 'TEXT');
+ensureColumn('matches', 'match_week', 'INTEGER');
+ensureColumn('matches', 'season_slug', 'TEXT');
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS match_team_stats (
+    id INTEGER PRIMARY KEY,
+    match_id INTEGER NOT NULL,
+    team_id INTEGER NOT NULL,
+    stat_key TEXT NOT NULL,
+    stat_value TEXT NOT NULL,
+    source_name TEXT NOT NULL,
+    source_url TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (match_id) REFERENCES matches(id),
+    FOREIGN KEY (team_id) REFERENCES teams(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_match_team_stats_match
+    ON match_team_stats (match_id, team_id);
+
+  CREATE TABLE IF NOT EXISTS standings_snapshots (
+    id INTEGER PRIMARY KEY,
+    source_name TEXT NOT NULL,
+    competition_slug TEXT NOT NULL,
+    competition_name TEXT NOT NULL,
+    season TEXT,
+    source_url TEXT,
+    fetched_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS standings_entries (
+    id INTEGER PRIMARY KEY,
+    snapshot_id INTEGER NOT NULL,
+    team_slug TEXT NOT NULL,
+    team_name TEXT NOT NULL,
+    team_short_name TEXT,
+    position INTEGER NOT NULL,
+    points INTEGER NOT NULL,
+    played INTEGER NOT NULL,
+    won INTEGER NOT NULL,
+    drawn INTEGER NOT NULL,
+    lost INTEGER NOT NULL,
+    goals_for INTEGER NOT NULL,
+    goals_against INTEGER NOT NULL,
+    goal_difference TEXT NOT NULL,
+    qualification TEXT,
+    logo_class TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (snapshot_id) REFERENCES standings_snapshots(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_standings_snapshots_competition
+    ON standings_snapshots (competition_slug, fetched_at DESC);
+
+  CREATE INDEX IF NOT EXISTS idx_standings_entries_snapshot
+    ON standings_entries (snapshot_id, position ASC);
+
+  CREATE INDEX IF NOT EXISTS idx_standings_entries_team_slug
+    ON standings_entries (team_slug);
+`);
+
+export default db;
