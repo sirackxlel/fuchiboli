@@ -156,7 +156,30 @@ function getLatestStoredStandings(competitionSlug) {
   return latest ? normalizeStandingsTable(latest) : null;
 }
 
+function getArgentinaStandingsCollections() {
+  return {
+    groupA: getLatestStoredStandings('liga-profesional-apertura-2026-grupo-a'),
+    groupB: getLatestStoredStandings('liga-profesional-apertura-2026-grupo-b'),
+    general: getLatestStoredStandings('liga-profesional-apertura-2026-general'),
+  };
+}
+
+function getArgentinaLogoMap() {
+  const tables = getArgentinaStandingsCollections();
+  const entries = [
+    ...(tables.groupA?.entries ?? []),
+    ...(tables.groupB?.entries ?? []),
+    ...(tables.general?.entries ?? []),
+  ];
+
+  return new Map(entries.map((entry) => [entry.teamSlug, entry.logoClass ?? null]));
+}
+
 function getCompetitionLogoMap(competitionSlug) {
+  if (competitionSlug === 'liga-profesional-apertura-2026') {
+    return getArgentinaLogoMap();
+  }
+
   const table = getLatestStoredStandings(competitionSlug);
   return new Map((table?.entries ?? []).map((entry) => [entry.teamSlug, entry.logoClass ?? null]));
 }
@@ -217,6 +240,8 @@ function getStatsForMatch(matchId) {
           mts.team_id,
           mts.stat_key,
           mts.stat_value,
+          mts.source_name,
+          mts.source_url,
           t.name AS team_name
         FROM match_team_stats mts
         JOIN teams t ON t.id = mts.team_id
@@ -232,6 +257,8 @@ function getStatsForMatch(matchId) {
     if (!byTeam.has(row.team_id)) {
       byTeam.set(row.team_id, {
         teamName: row.team_name,
+        source: row.source_name,
+        sourceUrl: row.source_url,
         stats: {},
       });
     }
@@ -240,6 +267,47 @@ function getStatsForMatch(matchId) {
   }
 
   return [...byTeam.values()];
+}
+
+function parseEventDescription(description) {
+  if (!description) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(description);
+  } catch {
+    return description;
+  }
+}
+
+function getEventsForMatch(matchId) {
+  return db
+    .prepare(
+      `
+        SELECT
+          me.event_type,
+          me.minute,
+          me.extra_minute,
+          me.description,
+          t.name AS team_name,
+          p.name AS player_name
+        FROM match_events me
+        LEFT JOIN teams t ON t.id = me.team_id
+        LEFT JOIN players p ON p.id = me.player_id
+        WHERE me.match_id = ?
+        ORDER BY me.minute ASC, me.extra_minute ASC, me.id ASC
+      `,
+    )
+    .all(matchId)
+    .map((event) => ({
+      eventType: event.event_type,
+      minute: event.minute,
+      extraMinute: event.extra_minute,
+      teamName: event.team_name,
+      playerName: event.player_name,
+      details: parseEventDescription(event.description),
+    }));
 }
 
 function buildStandingsCard(teamName, teamSlug, standingsEntry, competitionName) {
@@ -264,11 +332,73 @@ function buildStandingsCard(teamName, teamSlug, standingsEntry, competitionName)
         }
       : null,
     fullTable: null,
+    tableViews: [],
+  };
+}
+
+function buildStandingsTableView(key, table, teamSlug) {
+  const standing = table?.entries?.find((entry) => entry.teamSlug === teamSlug) ?? null;
+
+  if (!standing) {
+    return null;
+  }
+
+  return {
+    key,
+    competitionName: table.competition,
+    standing,
+    fullTable: table.entries,
+  };
+}
+
+function buildMultiStandingsCard(teamName, teamSlug, tableViews) {
+  const availableViews = tableViews.filter(Boolean);
+  const primaryView = availableViews[0] ?? null;
+
+  return {
+    teamName,
+    teamSlug,
+    available: availableViews.length > 0,
+    competitionName: primaryView?.competitionName ?? null,
+    standing: primaryView,
+    fullTable: primaryView?.fullTable ?? null,
+    tableViews: availableViews,
   };
 }
 
 async function getStandingsForMatch(match) {
   try {
+    if (match.competition_slug === 'liga-profesional-apertura-2026') {
+      const tables = getArgentinaStandingsCollections();
+      const teams = [
+        buildMultiStandingsCard(match.home_team, match.home_slug, [
+          buildStandingsTableView('group-a', tables.groupA, match.home_slug),
+          buildStandingsTableView('group-b', tables.groupB, match.home_slug),
+          buildStandingsTableView('general', tables.general, match.home_slug),
+        ]),
+        buildMultiStandingsCard(match.away_team, match.away_slug, [
+          buildStandingsTableView('group-a', tables.groupA, match.away_slug),
+          buildStandingsTableView('group-b', tables.groupB, match.away_slug),
+          buildStandingsTableView('general', tables.general, match.away_slug),
+        ]),
+      ];
+
+      const availableTeams = teams.filter((team) => team.available);
+
+      return {
+        available: availableTeams.length > 0,
+        message:
+          availableTeams.length > 0
+            ? null
+            : 'La tabla de posiciones todavia no esta disponible para los equipos de este partido.',
+        teams,
+        source:
+          tables.general?.source ?? tables.groupA?.source ?? tables.groupB?.source ?? match.source_name ?? 'DB',
+        updatedAt:
+          tables.general?.updatedAt ?? tables.groupA?.updatedAt ?? tables.groupB?.updatedAt ?? null,
+      };
+    }
+
     const standingsTable =
       match.competition_slug === 'laliga-ea-sports-2025-2026'
         ? normalizeStandingsTable(await ensureLatestLaLigaStandings())
@@ -377,6 +507,31 @@ export function getBundesligaStandings() {
   return table;
 }
 
+export function getArgentinaStandings(tableKey = 'general') {
+  const slugByTable = {
+    'group-a': 'liga-profesional-apertura-2026-grupo-a',
+    'group-b': 'liga-profesional-apertura-2026-grupo-b',
+    general: 'liga-profesional-apertura-2026-general',
+  };
+  const table = getLatestStoredStandings(slugByTable[tableKey] ?? '');
+
+  if (!table) {
+    throw new Error('No hay tabla de Liga Profesional cargada para esa vista.');
+  }
+
+  return table;
+}
+
+export function getSerieAStandings() {
+  const table = getLatestStoredStandings('serie-a-2025-2026');
+
+  if (!table) {
+    throw new Error('No hay tabla de Serie A cargada en la base.');
+  }
+
+  return table;
+}
+
 export async function getMatchDetail(matchId) {
   const match = db
     .prepare(
@@ -424,6 +579,7 @@ export async function getMatchDetail(matchId) {
 
   const lineups = getLineupsForMatch(matchId);
   const stats = getStatsForMatch(matchId);
+  const events = getEventsForMatch(matchId);
   const standings = await getStandingsForMatch(match);
   const competitionLogos = getCompetitionLogoMap(match.competition_slug);
 
@@ -448,11 +604,12 @@ export async function getMatchDetail(matchId) {
     homeScore: match.home_score,
     awayScore: match.away_score,
     source: match.source_name ?? 'DB',
-    sourceUrl: match.source_url ?? null,
-    lineups,
-    stats,
-    standings,
-  };
+      sourceUrl: match.source_url ?? null,
+      lineups,
+      stats,
+      events,
+      standings,
+    };
 }
 
 export function getLaLigaSeasonMatches() {
@@ -479,6 +636,24 @@ export function getBundesligaSeasonMatches() {
     seasonSlug: 'DFL-SEA-0001K9',
     sourceName: 'BUNDESLIGA',
     fallbackCompetitionName: 'Bundesliga',
+  });
+}
+
+export function getArgentinaSeasonMatches() {
+  return getSeasonMatchesByCompetition({
+    competitionSlug: 'liga-profesional-apertura-2026',
+    seasonSlug: '2026',
+    sourceName: 'LPF',
+    fallbackCompetitionName: 'Liga Profesional - Torneo Apertura',
+  });
+}
+
+export function getSerieASeasonMatches() {
+  return getSeasonMatchesByCompetition({
+    competitionSlug: 'serie-a-2025-2026',
+    seasonSlug: '2025/2026',
+    sourceName: 'SERIEA',
+    fallbackCompetitionName: 'Serie A',
   });
 }
 

@@ -1,11 +1,15 @@
 import express from 'express';
 import {
+  getArgentinaSeasonMatches,
+  getArgentinaStandings,
   getBundesligaSeasonMatches,
   getBundesligaStandings,
   getLaLigaStandings,
   getLaLigaSeasonMatches,
   getMatchDetail,
   getPremierLeagueSeasonMatches,
+  getSerieASeasonMatches,
+  getSerieAStandings,
   getUpcomingMatchesForTeam,
   getUpcomingMatchesGrouped,
   resolveTeamSlug,
@@ -74,6 +78,28 @@ app.get('/api/standings/bundesliga', (_request, response) => {
   }
 });
 
+app.get('/api/standings/argentina/:tableKey', (request, response) => {
+  try {
+    response.json(getArgentinaStandings(request.params.tableKey));
+  } catch (error) {
+    response.status(500).json({
+      error: 'No pudimos obtener la tabla de Liga Profesional.',
+      detail: error.message,
+    });
+  }
+});
+
+app.get('/api/standings/serie-a', (_request, response) => {
+  try {
+    response.json(getSerieAStandings());
+  } catch (error) {
+    response.status(500).json({
+      error: 'No pudimos obtener la tabla de Serie A.',
+      detail: error.message,
+    });
+  }
+});
+
 app.get('/api/season/laliga/matches', (_request, response) => {
   try {
     response.json({
@@ -114,6 +140,36 @@ app.get('/api/season/bundesliga/matches', (_request, response) => {
   } catch (error) {
     response.status(500).json({
       error: 'No pudimos obtener el calendario completo de Bundesliga.',
+      detail: error.message,
+    });
+  }
+});
+
+app.get('/api/season/argentina/matches', (_request, response) => {
+  try {
+    response.json({
+      competition: 'Liga Profesional - Torneo Apertura',
+      season: '2026',
+      matches: getArgentinaSeasonMatches(),
+    });
+  } catch (error) {
+    response.status(500).json({
+      error: 'No pudimos obtener el calendario completo de Liga Profesional.',
+      detail: error.message,
+    });
+  }
+});
+
+app.get('/api/season/serie-a/matches', (_request, response) => {
+  try {
+    response.json({
+      competition: 'Serie A',
+      season: '2025/2026',
+      matches: getSerieASeasonMatches(),
+    });
+  } catch (error) {
+    response.status(500).json({
+      error: 'No pudimos obtener el calendario completo de Serie A.',
       detail: error.message,
     });
   }

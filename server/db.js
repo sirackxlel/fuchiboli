@@ -2,7 +2,25 @@ import Database from 'better-sqlite3';
 
 const db = new Database('C:/Users/Usuario/base_futbol.db');
 
+db.pragma('busy_timeout = 10000');
 db.pragma('foreign_keys = ON');
+
+try {
+  db.pragma('journal_mode = WAL');
+} catch {
+  // If another process is holding the database, keep going with the current mode.
+}
+
+function tableExists(name) {
+  return Boolean(
+    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name),
+  );
+}
+
+function getCreateTableSql(name) {
+  return db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(name)
+    ?.sql;
+}
 
 function ensureColumn(tableName, columnName, definition) {
   const columns = db.prepare(`PRAGMA table_info(${tableName})`).all();
@@ -77,5 +95,97 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_standings_entries_team_slug
     ON standings_entries (team_slug);
 `);
+
+function ensureMatchEventsTable() {
+  const createSql = getCreateTableSql('match_events');
+
+  if (!tableExists('match_events')) {
+    db.exec(`
+      CREATE TABLE match_events (
+        id INTEGER PRIMARY KEY,
+        match_id INTEGER NOT NULL,
+        team_id INTEGER,
+        player_id INTEGER,
+        event_type TEXT NOT NULL,
+        minute INTEGER,
+        extra_minute INTEGER,
+        description TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (match_id) REFERENCES matches(id),
+        FOREIGN KEY (team_id) REFERENCES teams(id),
+        FOREIGN KEY (player_id) REFERENCES players(id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_match_events_match
+        ON match_events (match_id, minute ASC, extra_minute ASC, id ASC);
+    `);
+    return;
+  }
+
+  if (!createSql?.includes('matches_old')) {
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_match_events_match
+        ON match_events (match_id, minute ASC, extra_minute ASC, id ASC);
+    `);
+    return;
+  }
+
+  const rebuild = db.transaction(() => {
+    db.pragma('foreign_keys = OFF');
+
+    db.exec(`
+      ALTER TABLE match_events RENAME TO match_events_old;
+
+      CREATE TABLE match_events (
+        id INTEGER PRIMARY KEY,
+        match_id INTEGER NOT NULL,
+        team_id INTEGER,
+        player_id INTEGER,
+        event_type TEXT NOT NULL,
+        minute INTEGER,
+        extra_minute INTEGER,
+        description TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (match_id) REFERENCES matches(id),
+        FOREIGN KEY (team_id) REFERENCES teams(id),
+        FOREIGN KEY (player_id) REFERENCES players(id)
+      );
+
+      INSERT INTO match_events (
+        id,
+        match_id,
+        team_id,
+        player_id,
+        event_type,
+        minute,
+        extra_minute,
+        description,
+        created_at
+      )
+      SELECT
+        id,
+        match_id,
+        team_id,
+        player_id,
+        event_type,
+        minute,
+        extra_minute,
+        description,
+        created_at
+      FROM match_events_old;
+
+      DROP TABLE match_events_old;
+
+      CREATE INDEX IF NOT EXISTS idx_match_events_match
+        ON match_events (match_id, minute ASC, extra_minute ASC, id ASC);
+    `);
+
+    db.pragma('foreign_keys = ON');
+  });
+
+  rebuild();
+}
+
+ensureMatchEventsTable();
 
 export default db;

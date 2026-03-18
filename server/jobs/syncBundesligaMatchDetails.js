@@ -6,6 +6,7 @@ import {
   replaceLineupPlayers,
   upsertLineup,
 } from '../repositories/lineupsRepository.js';
+import { replaceMatchEvents } from '../repositories/matchEventsRepository.js';
 import { replaceMatchTeamStats } from '../repositories/matchStatsRepository.js';
 
 function slugify(value) {
@@ -37,7 +38,12 @@ const matches = db
           FROM match_team_stats mts
           WHERE mts.match_id = m.id
             AND mts.source_name = 'BUNDESLIGA'
-        ) AS stats_count
+        ) AS stats_count,
+        (
+          SELECT COUNT(*)
+          FROM match_events me
+          WHERE me.match_id = m.id
+        ) AS event_count
       FROM matches m
       JOIN competitions c ON c.id = m.competition_id
       JOIN teams home ON home.id = m.home_team_id
@@ -63,15 +69,16 @@ try {
   for (const match of matches) {
     const alreadyHasLineups = Number(match.lineup_count) >= 2;
     const alreadyHasStats = Number(match.stats_count) > 0;
+    const alreadyHasEvents = Number(match.event_count) > 0;
 
-    if (alreadyHasLineups && alreadyHasStats) {
+    if (alreadyHasLineups && alreadyHasStats && alreadyHasEvents) {
       continue;
     }
 
     itemsFound += 1;
     const slugLong = `${match.home_slug}-vs-${match.away_slug}`;
     try {
-      const { lineups, stats, lineupUrl, statsUrl } = await fetchBundesligaMatchPageData({
+      const { lineups, stats, events, lineupUrl, statsUrl } = await fetchBundesligaMatchPageData({
         matchWeek: match.match_week,
         slugLong,
       });
@@ -138,6 +145,36 @@ try {
       } else {
         warnings.push(`Sin estadisticas: ${slugLong}`);
       }
+
+      const eventRows = (events ?? []).map((event) => {
+        const teamId =
+          event.side === 'home'
+            ? match.home_team_id
+            : event.side === 'away'
+              ? match.away_team_id
+              : null;
+
+        const savedPlayer =
+          teamId && event.playerName
+            ? getOrCreatePlayer({
+                slug: `${slugify(event.playerName)}-${teamId}`,
+                name: event.playerName,
+                teamId,
+                position: null,
+              })
+            : null;
+
+        return {
+          teamId,
+          playerId: savedPlayer?.id ?? null,
+          eventType: event.eventType,
+          minute: event.minute,
+          extraMinute: event.extraMinute,
+          description: event.description,
+        };
+      });
+
+      itemsSaved += replaceMatchEvents(match.id, eventRows);
     } catch (error) {
       warnings.push(`Error en ${slugLong}: ${error.message}`);
     }

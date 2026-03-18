@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunk_N_E=self.webpackChunk_N_E||[]).push([[1906],{61906:(e,r,a)=>{a.r(r),a.d(r,{default:()=>n});var t=a(95155),l=a(47320),s=a(95277),u=a(80076);let n=e=>{let{data:r}=e;if((0,s.ZM)(r))return null;let a=(0,u.k)(r),n={...r,headerColorSchemaKey:a,isTransparent:!1};return(0,t.jsx)(l.A,{data:n})}}}]);

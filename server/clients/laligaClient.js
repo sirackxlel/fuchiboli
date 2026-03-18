@@ -122,7 +122,160 @@ export async function fetchLaLigaMatchPageData(matchUrl) {
     pageProps,
     lineups: pageProps?.data?.lineups ?? null,
     stats: pageProps?.data?.stats ?? null,
+    comments: pageProps?.data?.comments ?? [],
   };
+}
+
+function normalizeName(value) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function resolveCommentTeamId(content, teamsByName) {
+  const normalizedContent = normalizeName(content);
+
+  for (const [teamName, teamId] of teamsByName.entries()) {
+    const normalizedTeam = normalizeName(teamName);
+
+    if (
+      normalizedContent.includes(normalizedTeam) ||
+      normalizedTeam.includes(normalizedContent)
+    ) {
+      return teamId;
+    }
+  }
+
+  return null;
+}
+
+function resolveTeamIdByName(teamName, teamsByName) {
+  const normalizedTeamName = normalizeName(teamName);
+
+  if (!normalizedTeamName) {
+    return null;
+  }
+
+  if (teamsByName.has(normalizedTeamName)) {
+    return teamsByName.get(normalizedTeamName);
+  }
+
+  for (const [candidateName, teamId] of teamsByName.entries()) {
+    if (
+      candidateName.includes(normalizedTeamName) ||
+      normalizedTeamName.includes(candidateName)
+    ) {
+      return teamId;
+    }
+  }
+
+  return null;
+}
+
+function extractPlayerAndTeam(content) {
+  const matches = [...content.matchAll(/(?:^|[.!?]\s)([^().!?]+?)\s+\(([^)]+)\)/g)];
+  const directMatch = matches.at(-1);
+
+  if (directMatch) {
+    return {
+      playerName: directMatch[1].trim(),
+      teamName: directMatch[2].trim(),
+    };
+  }
+
+  const ownGoalMatch = content.match(/Gol en propia puerta de\s+([^.(]+?)\s+\(([^)]+)\)/i);
+
+  if (ownGoalMatch) {
+    return {
+      playerName: ownGoalMatch[1].trim(),
+      teamName: ownGoalMatch[2].trim(),
+    };
+  }
+
+  return {
+    playerName: null,
+    teamName: null,
+  };
+}
+
+function mapLaLigaCommentToEvent(comment, teamsByName) {
+  const content = String(comment?.content ?? '').trim();
+
+  if (!content) {
+    return null;
+  }
+
+  const normalized = normalizeName(content);
+  const { playerName, teamName } = extractPlayerAndTeam(content);
+  const resolvedTeamId =
+    (teamName ? resolveTeamIdByName(teamName, teamsByName) : null) ??
+    resolveCommentTeamId(content, teamsByName);
+
+  let eventType = null;
+
+  const commentKindId = Number(comment?.match_comment_kind?.id ?? 0);
+
+  if (commentKindId === 28 || normalized.includes('gol anulado por el var')) {
+    return null;
+  }
+
+  if (commentKindId === 8 || commentKindId === 29 || /go+ol/.test(normalized) || normalized.startsWith('gol ')) {
+    if (normalized.includes('propia puerta')) {
+      eventType = 'own_goal';
+    } else if (normalized.includes('penalti')) {
+      eventType = 'penalty_goal';
+    } else {
+      eventType = 'goal';
+    }
+  } else if (commentKindId === 22 || normalized.includes('segunda tarjeta amarilla')) {
+    eventType = 'second_yellow_red';
+  } else if (commentKindId === 21 || normalized.includes('tarjeta roja')) {
+    eventType = 'red_card';
+  } else if (commentKindId === 20 || normalized.includes('tarjeta amarilla')) {
+    eventType = 'yellow_card';
+  }
+
+  if (!eventType) {
+    return null;
+  }
+
+  return {
+    eventType,
+    minute: Number.isFinite(Number(comment?.time)) ? Number(comment.time) : null,
+    extraMinute: null,
+    teamId: resolvedTeamId,
+    playerName,
+    description: JSON.stringify({
+      period: comment?.period ?? null,
+      content,
+      matchCommentKindId: comment?.match_comment_kind?.id ?? null,
+    }),
+  };
+}
+
+export function mapLaLigaEvents(comments, teams) {
+  const teamsByName = new Map(
+    (teams ?? [])
+      .filter((team) => team?.name && team?.id != null)
+      .map((team) => [normalizeName(team.name), team.id]),
+  );
+
+  return (comments ?? [])
+    .map((comment) => mapLaLigaCommentToEvent(comment, teamsByName))
+    .filter(Boolean)
+    .sort((left, right) => {
+      const minuteDiff = (left.minute ?? 0) - (right.minute ?? 0);
+
+      if (minuteDiff !== 0) {
+        return minuteDiff;
+      }
+
+      return (left.extraMinute ?? 0) - (right.extraMinute ?? 0);
+    });
 }
 
 export async function fetchLaLigaMatchesByWeek({

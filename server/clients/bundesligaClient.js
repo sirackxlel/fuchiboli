@@ -121,6 +121,87 @@ function countCards(matchPayload, entryType, side) {
   ).length;
 }
 
+function parseLiveBlogTime(entry) {
+  return {
+    minute: entry?.playtime?.minute ?? null,
+    extraMinute: entry?.playtime?.injuryTime || null,
+  };
+}
+
+function stringifyEventDetails(details) {
+  return JSON.stringify(details);
+}
+
+function mapBundesligaEventType(entry) {
+  if (entry?.entryType === 'goal') {
+    return entry?.detail?.penalty ? 'penalty_goal' : 'goal';
+  }
+
+  if (entry?.entryType === 'ownGoal') {
+    return 'own_goal';
+  }
+
+  if (entry?.entryType === 'yellowCard') {
+    return 'yellow_card';
+  }
+
+  if (entry?.entryType === 'redCard') {
+    return 'red_card';
+  }
+
+  if (entry?.entryType === 'yellowRedCard') {
+    return 'second_yellow_red';
+  }
+
+  return null;
+}
+
+function mapBundesligaEvents(matchPayload) {
+  const entries = Object.values(matchPayload?.liveBlogEntries ?? {});
+
+  return entries
+    .map((entry) => {
+      const eventType = mapBundesligaEventType(entry);
+
+      if (!eventType) {
+        return null;
+      }
+
+      const actor = entry?.detail?.scorer ?? entry?.detail?.person ?? null;
+      const { minute, extraMinute } = parseLiveBlogTime(entry);
+
+      return {
+        side: entry?.side ?? null,
+        playerName: actor?.name ?? null,
+        eventType,
+        minute,
+        extraMinute,
+        description: stringifyEventDetails({
+          sourceEntryType: entry?.entryType ?? null,
+          penalty: Boolean(entry?.detail?.penalty),
+          score: entry?.detail?.score ?? null,
+        }),
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => {
+      const leftMinute = left.minute ?? 999;
+      const rightMinute = right.minute ?? 999;
+      const leftExtra = left.extraMinute ?? 0;
+      const rightExtra = right.extraMinute ?? 0;
+
+      if (leftMinute !== rightMinute) {
+        return leftMinute - rightMinute;
+      }
+
+      if (leftExtra !== rightExtra) {
+        return leftExtra - rightExtra;
+      }
+
+      return left.eventType.localeCompare(right.eventType);
+    });
+}
+
 function normalizeLineupPersons(persons, role) {
   return (persons ?? [])
     .map((person) => ({
@@ -235,6 +316,7 @@ export async function fetchBundesligaMatchPageData({ matchWeek, slugLong }) {
   return {
     lineups: mapBundesligaLineups(lineupPayload),
     stats: statsPayload ? mapBundesligaStats(statsPayload, matchPayload) : null,
+    events: mapBundesligaEvents(matchPayload),
     lineupUrl,
     statsUrl,
   };

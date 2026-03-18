@@ -1,5 +1,6 @@
 import db from '../db.js';
 import {
+  fetchPremierMatchEvents,
   fetchPremierMatchLineups,
   fetchPremierMatchStats,
 } from '../clients/premierClient.js';
@@ -12,6 +13,7 @@ import {
   replaceLineupPlayers,
   upsertLineup,
 } from '../repositories/lineupsRepository.js';
+import { replaceMatchEvents } from '../repositories/matchEventsRepository.js';
 import { replaceMatchTeamStats } from '../repositories/matchStatsRepository.js';
 
 function slugify(value) {
@@ -43,6 +45,212 @@ function buildPlayersForLineup(teamPayload) {
     .filter((player) => player.name);
 }
 
+function parseEventTime(rawValue) {
+  const value = String(rawValue ?? '').trim();
+  const matched = value.match(/^(\d+)(?:\+(\d+))?$/);
+
+  if (!matched) {
+    return {
+      minute: null,
+      extraMinute: null,
+    };
+  }
+
+  return {
+    minute: Number(matched[1]),
+    extraMinute: matched[2] ? Number(matched[2]) : null,
+  };
+}
+
+function mapGoalEventType(goalType) {
+  if (goalType === 'Penalty') {
+    return 'penalty_goal';
+  }
+
+  if (goalType === 'Own') {
+    return 'own_goal';
+  }
+
+  return 'goal';
+}
+
+function mapCardEventType(cardType) {
+  if (cardType === 'StraightRed') {
+    return 'red_card';
+  }
+
+  if (cardType === 'SecondYellow') {
+    return 'second_yellow_red';
+  }
+
+  return 'yellow_card';
+}
+
+function getOrCreatePremierPlayer(teamPayload, teamId, premierPlayerId) {
+  const player = (teamPayload?.players ?? []).find(
+    (candidate) => String(candidate.id) === String(premierPlayerId),
+  );
+
+  if (!player) {
+    return null;
+  }
+
+  const name = [player.firstName, player.lastName].filter(Boolean).join(' ').trim();
+
+  if (!name) {
+    return null;
+  }
+
+  return getOrCreatePlayer({
+    slug: `premier-${teamId}-${player.id}`,
+    name,
+    teamId,
+    position: player.position ?? null,
+  });
+}
+
+function resolvePlayerReference({
+  premierPlayerId,
+  homePayload,
+  awayPayload,
+  homeTeamId,
+  awayTeamId,
+}) {
+  if (!premierPlayerId) {
+    return {
+      playerId: null,
+      playerTeamId: null,
+    };
+  }
+
+  const homePlayer = getOrCreatePremierPlayer(homePayload, homeTeamId, premierPlayerId);
+  if (homePlayer) {
+    return {
+      playerId: homePlayer.id,
+      playerTeamId: homeTeamId,
+    };
+  }
+
+  const awayPlayer = getOrCreatePremierPlayer(awayPayload, awayTeamId, premierPlayerId);
+  if (awayPlayer) {
+    return {
+      playerId: awayPlayer.id,
+      playerTeamId: awayTeamId,
+    };
+  }
+
+  return {
+    playerId: null,
+    playerTeamId: null,
+  };
+}
+
+function buildEventDescription(details) {
+  return JSON.stringify(details);
+}
+
+function buildPremierMatchEvents({
+  match,
+  lineupsPayload,
+  eventsPayload,
+}) {
+  const homePayload = lineupsPayload?.home_team ?? null;
+  const awayPayload = lineupsPayload?.away_team ?? null;
+  const eventSides = [
+    {
+      payload: eventsPayload?.homeTeam ?? null,
+      teamId: match.home_team_id,
+      creditedTeamId: match.home_team_id,
+    },
+    {
+      payload: eventsPayload?.awayTeam ?? null,
+      teamId: match.away_team_id,
+      creditedTeamId: match.away_team_id,
+    },
+  ];
+  const events = [];
+
+  for (const side of eventSides) {
+    for (const goal of side.payload?.goals ?? []) {
+      const scorer = resolvePlayerReference({
+        premierPlayerId: goal.playerId,
+        homePayload,
+        awayPayload,
+        homeTeamId: match.home_team_id,
+        awayTeamId: match.away_team_id,
+      });
+      const assist = resolvePlayerReference({
+        premierPlayerId: goal.assistPlayerId,
+        homePayload,
+        awayPayload,
+        homeTeamId: match.home_team_id,
+        awayTeamId: match.away_team_id,
+      });
+      const { minute, extraMinute } = parseEventTime(goal.time);
+      const eventType = mapGoalEventType(goal.goalType);
+      const teamId =
+        eventType === 'own_goal'
+          ? scorer.playerTeamId ?? side.teamId
+          : side.teamId;
+
+      events.push({
+        teamId,
+        playerId: scorer.playerId,
+        eventType,
+        minute,
+        extraMinute,
+        description: buildEventDescription({
+          goalType: goal.goalType ?? null,
+          period: goal.period ?? null,
+          creditedTeamId: side.creditedTeamId,
+          assistPlayerId: assist.playerId,
+          isPenalty: eventType === 'penalty_goal',
+        }),
+      });
+    }
+
+    for (const card of side.payload?.cards ?? []) {
+      const bookedPlayer = resolvePlayerReference({
+        premierPlayerId: card.playerId,
+        homePayload,
+        awayPayload,
+        homeTeamId: match.home_team_id,
+        awayTeamId: match.away_team_id,
+      });
+      const { minute, extraMinute } = parseEventTime(card.time);
+
+      events.push({
+        teamId: side.teamId,
+        playerId: bookedPlayer.playerId,
+        eventType: mapCardEventType(card.type),
+        minute,
+        extraMinute,
+        description: buildEventDescription({
+          cardType: card.type ?? null,
+          period: card.period ?? null,
+        }),
+      });
+    }
+  }
+
+  return events.sort((left, right) => {
+    const leftMinute = left.minute ?? 999;
+    const rightMinute = right.minute ?? 999;
+    const leftExtra = left.extraMinute ?? 0;
+    const rightExtra = right.extraMinute ?? 0;
+
+    if (leftMinute !== rightMinute) {
+      return leftMinute - rightMinute;
+    }
+
+    if (leftExtra !== rightExtra) {
+      return leftExtra - rightExtra;
+    }
+
+    return left.eventType.localeCompare(right.eventType);
+  });
+}
+
 const matches = db
   .prepare(
     `
@@ -62,7 +270,13 @@ const matches = db
           FROM match_team_stats mts
           WHERE mts.match_id = m.id
             AND mts.source_name = 'PREMIER'
-        ) AS stats_count
+        ) AS stats_count,
+        (
+          SELECT COUNT(*)
+          FROM match_events me
+          WHERE me.match_id = m.id
+        ) AS event_count,
+        m.status
       FROM matches m
       JOIN competitions c ON c.id = m.competition_id
       JOIN match_sources ms ON ms.match_id = m.id
@@ -86,16 +300,19 @@ try {
   for (const match of matches) {
     const alreadyHasLineups = Number(match.lineup_count) >= 2;
     const alreadyHasStats = Number(match.stats_count) > 0;
+    const alreadyHasEvents = Number(match.event_count) > 0;
+    const shouldHaveEvents = match.status === 'finished';
 
-    if (alreadyHasLineups && alreadyHasStats) {
+    if (alreadyHasLineups && alreadyHasStats && (!shouldHaveEvents || alreadyHasEvents)) {
       continue;
     }
 
     itemsFound += 1;
     const matchId = String(match.source_match_id);
-    const [lineupsPayload, statsPayload] = await Promise.all([
+    const [lineupsPayload, statsPayload, eventsPayload] = await Promise.all([
       fetchPremierMatchLineups(matchId),
       fetchPremierMatchStats(matchId),
+      shouldHaveEvents ? fetchPremierMatchEvents(matchId) : Promise.resolve(null),
     ]);
 
     const lineupPairs = [
@@ -157,6 +374,16 @@ try {
         sourceUrl: match.source_url?.replace('/overview', '/stats') ?? match.source_url,
         stats: sideStats.stats,
       });
+    }
+
+    if (shouldHaveEvents) {
+      const events = buildPremierMatchEvents({
+        match,
+        lineupsPayload,
+        eventsPayload,
+      });
+
+      itemsSaved += replaceMatchEvents(match.id, events);
     }
   }
 
