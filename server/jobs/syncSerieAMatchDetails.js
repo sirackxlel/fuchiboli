@@ -227,6 +227,26 @@ function buildEventRows(summaryPayload, match) {
   });
 }
 
+const includeUpcoming = process.env.INCLUDE_UPCOMING === '1';
+const matchWindowFromUtc = process.env.MATCH_WINDOW_FROM_UTC?.trim() || null;
+const matchWindowToUtc = process.env.MATCH_WINDOW_TO_UTC?.trim() || null;
+const matchFilters = [];
+const matchFilterParams = [];
+
+if (!includeUpcoming) {
+  matchFilters.push("AND m.status = 'finished'");
+}
+
+if (matchWindowFromUtc) {
+  matchFilters.push('AND datetime(m.match_date_utc) >= datetime(?)');
+  matchFilterParams.push(matchWindowFromUtc);
+}
+
+if (matchWindowToUtc) {
+  matchFilters.push('AND datetime(m.match_date_utc) <= datetime(?)');
+  matchFilterParams.push(matchWindowToUtc);
+}
+
 const matches = db
   .prepare(
     `
@@ -257,12 +277,12 @@ const matches = db
       JOIN match_sources ms ON ms.match_id = m.id
       WHERE c.slug = 'serie-a-2025-2026'
         AND m.season_slug = '2025/2026'
-        AND m.status = 'finished'
         AND ms.source_name = 'SERIEA'
+        ${matchFilters.join('\n        ')}
       ORDER BY m.match_week ASC, datetime(m.match_date_utc) ASC
     `,
   )
-  .all();
+  .all(...matchFilterParams);
 
 const run = startScrapeRun({
   sourceName: 'SERIEA',

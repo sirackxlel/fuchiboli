@@ -19,6 +19,9 @@ const resetRequested = process.env.RESET !== '0';
 const onlyMatchId = process.env.MATCH_ID ? Number.parseInt(process.env.MATCH_ID, 10) : null;
 const limit = process.env.LIMIT ? Number.parseInt(process.env.LIMIT, 10) : null;
 const offset = process.env.OFFSET ? Number.parseInt(process.env.OFFSET, 10) : 0;
+const includeUpcoming = process.env.INCLUDE_UPCOMING === '1';
+const matchWindowFromUtc = process.env.MATCH_WINDOW_FROM_UTC?.trim() || null;
+const matchWindowToUtc = process.env.MATCH_WINDOW_TO_UTC?.trim() || null;
 
 function slugify(value) {
   return String(value ?? '')
@@ -63,6 +66,23 @@ function resolveTeamId(eventTeamName, homeTeamName, awayTeamName, homeTeamId, aw
   return null;
 }
 
+const matchFilters = [];
+const matchFilterParams = [COMPETITION_SLUG];
+
+if (!includeUpcoming) {
+  matchFilters.push("AND m.status = 'finished'");
+}
+
+if (matchWindowFromUtc) {
+  matchFilters.push('AND datetime(m.match_date_utc) >= datetime(?)');
+  matchFilterParams.push(matchWindowFromUtc);
+}
+
+if (matchWindowToUtc) {
+  matchFilters.push('AND datetime(m.match_date_utc) <= datetime(?)');
+  matchFilterParams.push(matchWindowToUtc);
+}
+
 let matches = db
   .prepare(
     `
@@ -88,11 +108,11 @@ let matches = db
       JOIN teams away ON away.id = m.away_team_id
       WHERE c.slug = ?
         AND m.season_slug = '2026'
-        AND m.status = 'finished'
+        ${matchFilters.join('\n        ')}
       ORDER BY datetime(m.match_date_utc) ASC, m.id ASC
     `,
   )
-  .all(COMPETITION_SLUG);
+  .all(...matchFilterParams);
 
 if (Number.isFinite(onlyMatchId)) {
   matches = matches.filter((match) => match.id === onlyMatchId);
@@ -186,6 +206,10 @@ try {
       ];
 
       for (const lineupPair of lineupPairs) {
+        if (!lineupPair.data) {
+          continue;
+        }
+
         const lineup = upsertLineup({
           matchId: match.id,
           teamId: lineupPair.teamId,

@@ -443,7 +443,7 @@ function getEventLabel(event) {
   }
 
   if (event.eventType === 'own_goal') {
-    return 'Gol en contra';
+    return 'Gol en propia';
   }
 
   if (event.eventType === 'yellow_card') {
@@ -462,6 +462,10 @@ function getEventLabel(event) {
 }
 
 function getEventTone(event) {
+  if (event.eventType === 'own_goal') {
+    return 'own-goal';
+  }
+
   if (event.eventType === 'yellow_card') {
     return 'warning';
   }
@@ -471,6 +475,20 @@ function getEventTone(event) {
   }
 
   return 'success';
+}
+
+function lineupHasPlayer(lineup, playerName) {
+  if (!lineup || !playerName) {
+    return false;
+  }
+
+  const playerNames = new Set(
+    [...(lineup.starters ?? []), ...(lineup.bench ?? [])]
+      .map((player) => normalizePersonName(player.player_name))
+      .filter(Boolean),
+  );
+
+  return Boolean(findMatchingPlayerKey(playerNames, playerName));
 }
 
 function buildMatchEvents(detail) {
@@ -488,33 +506,88 @@ function buildMatchEvents(detail) {
     return null;
   }
 
+  const homeLineup = detail.lineups?.find((lineup) => lineup.teamName === detail.homeTeam);
+  const awayLineup = detail.lineups?.find((lineup) => lineup.teamName === detail.awayTeam);
+
   return {
-    home: interestingEvents.filter((event) => event.teamName === detail.homeTeam),
-    away: interestingEvents.filter((event) => event.teamName === detail.awayTeam),
+    home: interestingEvents.filter((event) => {
+      if (event.eventType === 'own_goal') {
+        return lineupHasPlayer(homeLineup, event.playerName);
+      }
+
+      return event.teamName === detail.homeTeam;
+    }),
+    away: interestingEvents.filter((event) => {
+      if (event.eventType === 'own_goal') {
+        return lineupHasPlayer(awayLineup, event.playerName);
+      }
+
+      return event.teamName === detail.awayTeam;
+    }),
   };
 }
 
-function buildLineupIncidents(detail, teamName) {
-  if (!detail?.events?.length || !teamName) {
+function findMatchingPlayerKey(playerNames, playerName) {
+  const normalizedPlayerName = normalizePersonName(playerName);
+
+  if (playerNames.has(normalizedPlayerName)) {
+    return normalizedPlayerName;
+  }
+
+  const playerTokens = getNameTokens(playerName);
+
+  for (const candidate of playerNames) {
+    if (
+      candidate.includes(normalizedPlayerName) ||
+      normalizedPlayerName.includes(candidate)
+    ) {
+      return candidate;
+    }
+
+    const candidateTokens = getNameTokens(candidate);
+    const sharedTokens = playerTokens.filter((token) => candidateTokens.includes(token));
+
+    if (sharedTokens.length >= Math.min(2, playerTokens.length, candidateTokens.length)) {
+      return candidate;
+    }
+
+    if (
+      playerTokens.length === 1 &&
+      candidateTokens.some((token) => token === playerTokens[0])
+    ) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function buildLineupIncidents(detail, lineup) {
+  if (!detail?.events?.length || !lineup) {
     return new Map();
   }
 
   const incidents = new Map();
-  const normalizedTeamName = normalizePersonName(teamName);
-  const teamEvents = detail.events.filter(
-    (event) => normalizePersonName(event.teamName) === normalizedTeamName,
+  const normalizedTeamName = normalizePersonName(lineup.teamName);
+  const lineupPlayerKeys = new Set(
+    [...(lineup.starters ?? []), ...(lineup.bench ?? [])]
+      .map((player) => normalizePersonName(player.player_name))
+      .filter(Boolean),
   );
 
-  for (const event of teamEvents) {
-    const playerKey = normalizePersonName(event.playerName);
+  for (const event of detail.events) {
+    const playerKey = findMatchingPlayerKey(lineupPlayerKeys, event.playerName);
+    const eventTeamMatches = normalizePersonName(event.teamName) === normalizedTeamName;
+    const isOwnGoalBySelectedLineup = event.eventType === 'own_goal' && Boolean(playerKey);
 
-    if (!playerKey) {
+    if ((!eventTeamMatches && !isOwnGoalBySelectedLineup) || !playerKey) {
       continue;
     }
 
     if (!incidents.has(playerKey)) {
       incidents.set(playerKey, {
         goals: 0,
+        ownGoals: 0,
         yellow: 0,
         red: 0,
       });
@@ -524,6 +597,10 @@ function buildLineupIncidents(detail, teamName) {
 
     if (event.eventType === 'goal' || event.eventType === 'penalty_goal') {
       playerIncidents.goals += 1;
+    }
+
+    if (event.eventType === 'own_goal') {
+      playerIncidents.ownGoals += 1;
     }
 
     if (event.eventType === 'yellow_card') {
@@ -578,7 +655,10 @@ function resolvePlayerIncidents(incidentsByPlayer, playerName) {
 }
 
 function PlayerIncidents({ incidents }) {
-  if (!incidents || (!incidents.goals && !incidents.yellow && !incidents.red)) {
+  if (
+    !incidents ||
+    (!incidents.goals && !incidents.ownGoals && !incidents.yellow && !incidents.red)
+  ) {
     return null;
   }
 
@@ -587,6 +667,18 @@ function PlayerIncidents({ incidents }) {
       {incidents.goals > 0 && (
         <span className="lineup-incidents__item lineup-incidents__item--goal" title="Goles">
           {'\u26BD'.repeat(incidents.goals)}
+        </span>
+      )}
+      {incidents.ownGoals > 0 && (
+        <span
+          className="lineup-incidents__item lineup-incidents__item--own-goal"
+          title="Goles en contra"
+        >
+          {Array.from({ length: incidents.ownGoals }, (_, index) => (
+            <span key={`own-goal-${index}`} className="lineup-incidents__own-goal-mark">
+              {'\u26BD'}(GEC)
+            </span>
+          ))}
         </span>
       )}
       {incidents.yellow > 0 && (
@@ -695,7 +787,7 @@ function MatchDetailModal({ detail, loading, error, onClose, logoManifest }) {
     null;
   const statsComparison = buildStatsComparison(detail);
   const matchEvents = buildMatchEvents(detail);
-  const lineupIncidents = buildLineupIncidents(detail, selectedLineup?.teamName);
+  const lineupIncidents = buildLineupIncidents(detail, selectedLineup);
   const usesSharedStandingsTable = ['premier', 'laliga', 'bundesliga'].includes(
     detail?.competitionKey,
   );

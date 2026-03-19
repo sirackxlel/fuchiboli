@@ -228,7 +228,8 @@ function parseScoreCell(rowHtml, side) {
 }
 
 function parseFixtures(fixturesHtml, teamDirectory) {
-  const weekHeadingPattern = /<li><h3 class="Opta-Exp"><span>(Fecha \d+)<\/span>[\s\S]*?<\/h3><div>/g;
+  const weekHeadingPattern =
+    /<li(?:\s+[^>]*)?><h3 class="Opta-Exp"><span>(Fecha \d+)<\/span>[\s\S]*?<\/h3><div>/g;
   const weekHeadings = [...fixturesHtml.matchAll(weekHeadingPattern)];
   const weekBlocks = weekHeadings.map((headingMatch, index) => {
     const headingHtml = headingMatch[0];
@@ -508,7 +509,7 @@ function parseLpfScore(html, side) {
   return match ? Number.parseInt(match[1], 10) : 0;
 }
 
-function parseLpfLineupTable(tableHtml, formation) {
+function parseLpfLineupTable(tableHtml, formation, opponentTeamName = null) {
   const teamName = normalizeWhitespace(tableHtml.match(/<h3><span>([\s\S]*?)<\/span><\/h3>/)?.[1] ?? '');
   const rows = [...tableHtml.matchAll(/<tr class="([^"]+)">([\s\S]*?)<\/tr>/g)];
   const starters = [];
@@ -576,6 +577,8 @@ function parseLpfLineupTable(tableHtml, formation) {
         eventType = 'goal';
       } else if (iconClass === 'Opta-IconPenGoal') {
         eventType = 'penalty_goal';
+      } else if (iconClass === 'Opta-IconOwn') {
+        eventType = 'own_goal';
       } else if (iconClass === 'Opta-IconYellow') {
         eventType = 'yellow_card';
       } else if (iconClass === 'Opta-IconRed') {
@@ -593,7 +596,7 @@ function parseLpfLineupTable(tableHtml, formation) {
         minute: Number.parseInt(minuteMatch[1], 10),
         extraMinute: minuteMatch[2] ? Number.parseInt(minuteMatch[2], 10) : null,
         playerName: name,
-        teamName,
+        teamName: eventType === 'own_goal' ? opponentTeamName ?? teamName : teamName,
       });
     }
 
@@ -931,8 +934,14 @@ export async function fetchLpfMatchPageData(matchUrl) {
     throw new Error(`La pagina LPF no trajo tablas de alineacion para ${matchUrl}`);
   }
 
-  const homeLineup = parseLpfLineupTable(squadTables[0][2], formations[0] ?? null);
-  const awayLineup = parseLpfLineupTable(squadTables[1][2], formations[1] ?? null);
+  const homeTeamName = normalizeWhitespace(
+    squadTables[0][2].match(/<h3><span>([\s\S]*?)<\/span><\/h3>/)?.[1] ?? '',
+  );
+  const awayTeamName = normalizeWhitespace(
+    squadTables[1][2].match(/<h3><span>([\s\S]*?)<\/span><\/h3>/)?.[1] ?? '',
+  );
+  const homeLineup = parseLpfLineupTable(squadTables[0][2], formations[0] ?? null, awayTeamName);
+  const awayLineup = parseLpfLineupTable(squadTables[1][2], formations[1] ?? null, homeTeamName);
   const stats = parseLpfCommentaryStats(html, homeLineup.teamName, awayLineup.teamName);
   const possession = parseLpfPossession(html);
 
@@ -969,11 +978,13 @@ export async function fetchLpfMatchPageData(matchUrl) {
     matchUrl,
     lineups: {
       home: {
+        teamName: homeLineup.teamName,
         formation: homeLineup.formation,
         starters: homeLineup.starters,
         bench: homeLineup.bench,
       },
       away: {
+        teamName: awayLineup.teamName,
         formation: awayLineup.formation,
         starters: awayLineup.starters,
         bench: awayLineup.bench,

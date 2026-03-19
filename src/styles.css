@@ -457,6 +457,13 @@ body {
     0 0 18px rgba(255, 95, 122, 0.18);
 }
 
+.event-item--own-goal {
+  border-color: #ff9f43;
+  box-shadow:
+    0 0 0 1px rgba(255, 159, 67, 0.24),
+    0 0 18px rgba(255, 159, 67, 0.18);
+}
+
 .event-item__top {
   display: flex;
   align-items: center;
@@ -639,6 +646,17 @@ body {
 
 .lineup-incidents__item--goal {
   filter: drop-shadow(0 0 8px rgba(61, 255, 141, 0.3));
+}
+
+.lineup-incidents__item--own-goal {
+  color: #ff5f7a;
+  filter: drop-shadow(0 0 8px rgba(255, 95, 122, 0.28));
+}
+
+.lineup-incidents__own-goal-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .lineup-incidents__item--yellow {

@@ -51,6 +51,21 @@ function normalizeLineupPlayers(entries, role) {
     .filter((entry) => entry.name);
 }
 
+const matchWindowFromUtc = process.env.MATCH_WINDOW_FROM_UTC?.trim() || null;
+const matchWindowToUtc = process.env.MATCH_WINDOW_TO_UTC?.trim() || null;
+const detailQueryFilters = [];
+const detailQueryParams = [];
+
+if (matchWindowFromUtc) {
+  detailQueryFilters.push('AND datetime(m.match_date_utc) >= datetime(?)');
+  detailQueryParams.push(matchWindowFromUtc);
+}
+
+if (matchWindowToUtc) {
+  detailQueryFilters.push('AND datetime(m.match_date_utc) <= datetime(?)');
+  detailQueryParams.push(matchWindowToUtc);
+}
+
 const matches = db
   .prepare(
     `
@@ -85,10 +100,11 @@ const matches = db
         AND m.season_slug = 'temporada-2025-2026'
         AND ms.source_name = 'LALIGA'
         AND ms.source_url LIKE 'https://www.laliga.com/partido/temporada-2025-2026%'
+        ${detailQueryFilters.join('\n        ')}
       ORDER BY datetime(m.match_date_utc) ASC
     `,
   )
-  .all();
+  .all(...detailQueryParams);
 
 const run = startScrapeRun({
   sourceName: 'LALIGA',
