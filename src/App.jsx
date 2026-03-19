@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { FaChevronDown, FaChevronUp } from 'react-icons/fa';
+import { FaChevronDown, FaChevronUp, FaRegStar, FaStar } from 'react-icons/fa';
 
 const LALIGA_SHIELD_SPRITE_STYLESHEET =
   'https://assets.laliga.com/assets/sprites/shield-sprite.css?20251002124452881729';
+const FAVORITE_TEAMS_COOKIE_NAME = 'fuchiboli_favorite_teams';
 const LOGO_SLUG_ALIASES = {
   laliga: {
     'elche-cf': 'elche-c-f',
@@ -10,6 +11,38 @@ const LOGO_SLUG_ALIASES = {
     'rcd-espanyol-de-barcelona': 'rcd-espanyol',
   },
 };
+
+function readFavoriteTeamSlugsFromCookie() {
+  if (typeof document === 'undefined') {
+    return [];
+  }
+
+  const cookie = document.cookie
+    .split('; ')
+    .find((entry) => entry.startsWith(`${FAVORITE_TEAMS_COOKIE_NAME}=`));
+
+  if (!cookie) {
+    return [];
+  }
+
+  try {
+    const value = decodeURIComponent(cookie.split('=').slice(1).join('='));
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeFavoriteTeamSlugsToCookie(teamSlugs) {
+  if (typeof document === 'undefined') {
+    return;
+  }
+
+  document.cookie = `${FAVORITE_TEAMS_COOKIE_NAME}=${encodeURIComponent(
+    JSON.stringify(teamSlugs),
+  )}; path=/; max-age=${60 * 60 * 24 * 365}`;
+}
 
 function slugifyTeamName(value) {
   return String(value ?? '')
@@ -44,6 +77,10 @@ function formatScore(match) {
   }
 
   return `${match.homeScore} - ${match.awayScore}`;
+}
+
+function formatBetssonOdd(value) {
+  return Number.isFinite(value) ? value.toFixed(2) : '-';
 }
 
 function getTeamLogoClass(teamSlug, competitionKey) {
@@ -114,6 +151,16 @@ function getCompetitionLabel(competitionKey) {
   }
 
   return 'Liga';
+}
+
+function getCompetitionOptions() {
+  return [
+    { key: 'laliga', label: 'LaLiga' },
+    { key: 'premier', label: 'Premier League' },
+    { key: 'bundesliga', label: 'Bundesliga' },
+    { key: 'argentina', label: 'Liga Argentina' },
+    { key: 'seriea', label: 'Serie A' },
+  ];
 }
 
 function getGroupKey(match) {
@@ -246,6 +293,106 @@ function TeamBadge({ teamSlug, competitionKey, teamName, logoManifest, logoUrl =
   }
 
   return <span className="team-badge-fallback">{getInitials(teamName)}</span>;
+}
+
+function BetssonOddsLine({ odds }) {
+  if (!odds) {
+    return null;
+  }
+
+  return (
+    <div className="fixture__odds" aria-label="Cuotas Betsson">
+      <span className="fixture__odds-bookmaker">Betsson</span>
+      <div className="fixture__odds-values">
+        <span>1 {formatBetssonOdd(odds.home)}</span>
+        <span>X {formatBetssonOdd(odds.draw)}</span>
+        <span>2 {formatBetssonOdd(odds.away)}</span>
+      </div>
+    </div>
+  );
+}
+
+function BetssonLogo() {
+  return (
+    <span className="betsson-logo" aria-label="Betsson">
+      <span className="betsson-logo__word">betsson</span>
+    </span>
+  );
+}
+
+function buildBetssonBarSegments(odds) {
+  const home = Number(odds?.home);
+  const away = Number(odds?.away);
+
+  if (!Number.isFinite(home) || !Number.isFinite(away) || home <= 0 || away <= 0) {
+    return {
+      homeWidth: 50,
+      awayWidth: 50,
+    };
+  }
+
+  const total = home + away;
+
+  return {
+    homeWidth: (home / total) * 100,
+    awayWidth: (away / total) * 100,
+  };
+}
+
+function BetssonOddsModalCard({ detail }) {
+  const odds = detail?.betssonOdds ?? null;
+
+  if (!odds) {
+    return null;
+  }
+
+  const { homeWidth, awayWidth } = buildBetssonBarSegments(odds);
+
+  return (
+    <div className="detail-section">
+      <h3>Cuotas Betsson</h3>
+      <article className="betsson-card">
+        <div className="betsson-card__header">
+          <div className="betsson-card__brand">
+            <BetssonLogo />
+            <div>
+              <strong>Betsson</strong>
+              <p>Cuotas 1X2 para este partido</p>
+            </div>
+          </div>
+          {odds.updatedAt && (
+            <span className="betsson-card__updated">Actualizado {formatDate(odds.updatedAt)}</span>
+          )}
+        </div>
+
+        <div className="betsson-card__odds">
+          <div className="betsson-card__odd">
+            <span className="betsson-card__label">{detail.homeTeam}</span>
+            <strong>{formatBetssonOdd(odds.home)}</strong>
+          </div>
+          <div className="betsson-card__odd betsson-card__odd--draw">
+            <span className="betsson-card__label">Empate</span>
+            <strong>{formatBetssonOdd(odds.draw)}</strong>
+          </div>
+          <div className="betsson-card__odd betsson-card__odd--away">
+            <span className="betsson-card__label">{detail.awayTeam}</span>
+            <strong>{formatBetssonOdd(odds.away)}</strong>
+          </div>
+        </div>
+
+        <div className="betsson-card__bar-wrap">
+          <div className="betsson-card__bar-labels">
+            <span>{detail.homeTeam}</span>
+            <span>{detail.awayTeam}</span>
+          </div>
+          <div className="betsson-card__bar" aria-label="Comparacion de cuotas entre local y visitante">
+            <span className="betsson-card__bar-home" style={{ width: `${homeWidth}%` }} />
+            <span className="betsson-card__bar-away" style={{ width: `${awayWidth}%` }} />
+          </div>
+        </div>
+      </article>
+    </div>
+  );
 }
 
 function StandingsBadge({ entry, competitionKey, logoManifest }) {
@@ -732,7 +879,15 @@ function MatchEventsColumn({ title, events, emptyLabel }) {
   );
 }
 
-function MatchDetailModal({ detail, loading, error, onClose, logoManifest }) {
+function MatchDetailModal({
+  detail,
+  loading,
+  error,
+  onClose,
+  logoManifest,
+  favoriteTeamSlugs,
+  onToggleFavoriteTeam,
+}) {
   const [selectedStandingsTeamSlug, setSelectedStandingsTeamSlug] = useState('');
   const [selectedStandingsTableKey, setSelectedStandingsTableKey] = useState('');
   const [selectedLineupTeamName, setSelectedLineupTeamName] = useState('');
@@ -775,6 +930,9 @@ function MatchDetailModal({ detail, loading, error, onClose, logoManifest }) {
     return null;
   }
 
+  const isHomeFavorite = detail ? favoriteTeamSlugs.includes(detail.homeSlug) : false;
+  const isAwayFavorite = detail ? favoriteTeamSlugs.includes(detail.awaySlug) : false;
+
   const selectedStandingsTeam = detail?.standings?.teams?.find(
     (team) => team.teamSlug === selectedStandingsTeamSlug,
   );
@@ -785,10 +943,16 @@ function MatchDetailModal({ detail, loading, error, onClose, logoManifest }) {
     selectedStandingsTeam?.tableViews?.find((tableView) => tableView.key === selectedStandingsTableKey) ??
     selectedStandingsTeam?.tableViews?.[0] ??
     null;
+  const hasLineupData = Boolean(
+    detail?.lineups?.some(
+      (lineup) => (lineup.starters?.length ?? 0) > 0 || (lineup.bench?.length ?? 0) > 0,
+    ),
+  );
   const statsComparison = buildStatsComparison(detail);
   const matchEvents = buildMatchEvents(detail);
   const lineupIncidents = buildLineupIncidents(detail, selectedLineup);
-  const usesSharedStandingsTable = ['premier', 'laliga', 'bundesliga'].includes(
+  const hasExtraData = hasLineupData || Boolean(statsComparison) || Boolean(matchEvents);
+  const usesSharedStandingsTable = ['premier', 'laliga', 'bundesliga', 'seriea'].includes(
     detail?.competitionKey,
   );
   const homeStandingsTeam = detail?.standings?.teams?.find((team) => team.teamSlug === detail.homeSlug);
@@ -846,15 +1010,37 @@ function MatchDetailModal({ detail, loading, error, onClose, logoManifest }) {
             <h2>
               {detail.homeTeam} vs {detail.awayTeam}
             </h2>
+            <div className="favorite-team-actions">
+              <button
+                type="button"
+                className={`favorite-team-button ${isHomeFavorite ? 'favorite-team-button--active' : ''}`}
+                onClick={() => onToggleFavoriteTeam(detail.homeSlug)}
+              >
+                {isHomeFavorite ? <FaStar aria-hidden="true" /> : <FaRegStar aria-hidden="true" />}
+                <span>{detail.homeTeam}</span>
+              </button>
+              <button
+                type="button"
+                className={`favorite-team-button ${isAwayFavorite ? 'favorite-team-button--active' : ''}`}
+                onClick={() => onToggleFavoriteTeam(detail.awaySlug)}
+              >
+                {isAwayFavorite ? <FaStar aria-hidden="true" /> : <FaRegStar aria-hidden="true" />}
+                <span>{detail.awayTeam}</span>
+              </button>
+            </div>
             <p>{formatDate(detail.date)}</p>
             <p className="fixture__venue">{detail.venue || 'Sede a confirmar'}</p>
 
+            {!hasExtraData && (
+              <div className="detail-section">
+                <h3>Datos extra</h3>
+                <p className="status">No hay datos extras.</p>
+              </div>
+            )}
+
+            {hasExtraData && (
             <div className="detail-section">
               <h3>Alineaciones</h3>
-              {detail.lineups.length === 0 && (
-                <p className="status">Las alineaciones todavia no estan disponibles.</p>
-              )}
-
               {detail.lineups.length > 0 && (
                 <>
                   <div className="standings-tabs" role="tablist" aria-label="Elegir alineacion">
@@ -926,7 +1112,9 @@ function MatchDetailModal({ detail, loading, error, onClose, logoManifest }) {
                 </>
               )}
             </div>
+            )}
 
+            {hasExtraData && (
             <div className="detail-section">
               <h3>Estadisticas</h3>
               {!statsComparison && (
@@ -981,7 +1169,9 @@ function MatchDetailModal({ detail, loading, error, onClose, logoManifest }) {
                 </article>
               )}
             </div>
+            )}
 
+            {hasExtraData && (
             <div className="detail-section">
               <h3>Incidencias</h3>
               {!matchEvents && (
@@ -1028,6 +1218,7 @@ function MatchDetailModal({ detail, loading, error, onClose, logoManifest }) {
                 </article>
               )}
             </div>
+            )}
 
             <div className="detail-section">
               <h3>Tabla de posiciones</h3>
@@ -1047,7 +1238,7 @@ function MatchDetailModal({ detail, loading, error, onClose, logoManifest }) {
 
                     <div className="standings-card__summary">
                       <span>Tabla compartida</span>
-                      <strong>Premier League</strong>
+                      <strong>{sharedStandingsTableView.competitionName ?? detail.competition}</strong>
                     </div>
                   </div>
 
@@ -1241,6 +1432,7 @@ function MatchDetailModal({ detail, loading, error, onClose, logoManifest }) {
                 </>
               )}
             </div>
+            <BetssonOddsModalCard detail={detail} />
           </>
         )}
       </section>
@@ -1248,7 +1440,7 @@ function MatchDetailModal({ detail, loading, error, onClose, logoManifest }) {
   );
 }
 
-function RoundGroup({ group, onOpenMatch, logoManifest }) {
+function RoundGroup({ group, onOpenMatch, logoManifest, oddsByMatchId }) {
   return (
     <section className="round-group">
       <div className="round-group__header">
@@ -1304,6 +1496,7 @@ function RoundGroup({ group, onOpenMatch, logoManifest }) {
               {match.venue || 'Sede a confirmar'}
               {match.city ? ` · ${match.city}` : ''}
             </p>
+            <BetssonOddsLine odds={oddsByMatchId?.[match.id] ?? null} />
           </button>
         ))}
       </div>
@@ -1311,7 +1504,7 @@ function RoundGroup({ group, onOpenMatch, logoManifest }) {
   );
 }
 
-function OverdueMatchesSection({ matches, onOpenMatch, logoManifest }) {
+function OverdueMatchesSection({ matches, onOpenMatch, logoManifest, oddsByMatchId }) {
   if (matches.length === 0) {
     return null;
   }
@@ -1371,6 +1564,7 @@ function OverdueMatchesSection({ matches, onOpenMatch, logoManifest }) {
               {match.venue || 'Sede a confirmar'}
               {match.city ? ` Â· ${match.city}` : ''}
             </p>
+            <BetssonOddsLine odds={oddsByMatchId?.[match.id] ?? null} />
           </button>
         ))}
       </div>
@@ -1378,11 +1572,267 @@ function OverdueMatchesSection({ matches, onOpenMatch, logoManifest }) {
   );
 }
 
-function SeasonSelectorSection({ matches, loading, error, onOpenMatch, logoManifest }) {
+function FavoriteMatchesSection({ matches, onOpenMatch, logoManifest, oddsByMatchId }) {
+  if (matches.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="round-group round-group--favorites">
+      <div className="round-group__header">
+        <div>
+          <p className="fixture__competition">Tus favoritos</p>
+          <span className="fixture__league-tag">Proximos 3 partidos de tus equipos favoritos</span>
+        </div>
+      </div>
+
+      <div className="fixtures">
+        {matches.map((match) => (
+          <button
+            key={`favorite-${match.id}`}
+            type="button"
+            className="fixture fixture--button fixture--season"
+            onClick={() => onOpenMatch(match.id)}
+          >
+            <div className="fixture__season-top">
+              <div>
+                <p className="fixture__competition">{match.roundName || match.competition}</p>
+                <span className="fixture__league-tag">{getCompetitionLabel(match.competitionKey)}</span>
+              </div>
+              <span className="fixture__score">{formatScore(match)}</span>
+            </div>
+
+            <div className="fixture__teams">
+              <div className="fixture__team">
+                <TeamBadge
+                  teamSlug={match.homeSlug}
+                  competitionKey={match.competitionKey}
+                  teamName={match.homeTeam}
+                  logoManifest={logoManifest}
+                  logoUrl={match.homeLogoUrl}
+                />
+                <h3>{match.homeTeam}</h3>
+              </div>
+              <span className="fixture__versus">vs</span>
+              <div className="fixture__team">
+                <TeamBadge
+                  teamSlug={match.awaySlug}
+                  competitionKey={match.competitionKey}
+                  teamName={match.awayTeam}
+                  logoManifest={logoManifest}
+                  logoUrl={match.awayLogoUrl}
+                />
+                <h3>{match.awayTeam}</h3>
+              </div>
+            </div>
+
+            <p>{formatDate(match.date)}</p>
+            <p className="fixture__competition">{getStatusLabel(match)}</p>
+            <p className="fixture__venue">
+              {match.venue || 'Sede a confirmar'}
+              {match.city ? ` · ${match.city}` : ''}
+            </p>
+            <BetssonOddsLine odds={oddsByMatchId?.[match.id] ?? null} />
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function SquadSection({ logoManifest }) {
+  const [selectedCompetition, setSelectedCompetition] = useState('argentina');
+  const [teams, setTeams] = useState([]);
+  const [teamsLoading, setTeamsLoading] = useState(true);
+  const [teamsError, setTeamsError] = useState('');
+  const [selectedTeamSlug, setSelectedTeamSlug] = useState('');
+  const [squad, setSquad] = useState(null);
+  const [squadLoading, setSquadLoading] = useState(false);
+  const [squadError, setSquadError] = useState('');
+
+  const competitionOptions = getCompetitionOptions();
+
+  useEffect(() => {
+    let cancelled = false;
+    setTeamsLoading(true);
+    setTeamsError('');
+    setSelectedTeamSlug('');
+    setSquad(null);
+    setSquadError('');
+
+    fetch(`/api/teams/${selectedCompetition}`)
+      .then(async (response) => {
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.detail || 'No pudimos cargar los equipos.');
+        }
+
+        return response.json();
+      })
+      .then((data) => {
+        if (!cancelled) {
+          const nextTeams = data.teams ?? [];
+          setTeams(nextTeams);
+          setSelectedTeamSlug(nextTeams[0]?.teamSlug ?? '');
+          setTeamsLoading(false);
+        }
+      })
+      .catch((loadError) => {
+        if (!cancelled) {
+          setTeamsError(loadError.message);
+          setTeamsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCompetition]);
+
+  useEffect(() => {
+    if (!selectedTeamSlug) {
+      setSquad(null);
+      setSquadLoading(false);
+      setSquadError('');
+      return;
+    }
+
+    let cancelled = false;
+    setSquadLoading(true);
+    setSquadError('');
+
+    fetch(`/api/team/${selectedTeamSlug}/players`)
+      .then(async (response) => {
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.detail || 'No pudimos cargar el plantel.');
+        }
+
+        return response.json();
+      })
+      .then((data) => {
+        if (!cancelled) {
+          setSquad(data);
+          setSquadLoading(false);
+        }
+      })
+      .catch((loadError) => {
+        if (!cancelled) {
+          setSquadError(loadError.message);
+          setSquadLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTeamSlug]);
+
+  const selectedTeam = teams.find((team) => team.teamSlug === selectedTeamSlug) ?? null;
+
+  return (
+    <section className="team-card squad-card">
+      <div className="team-card__header">
+        <p className="eyebrow">Equipos</p>
+        <h2>Plantel por numero</h2>
+      </div>
+
+      <div className="competition-filters">
+        {competitionOptions.map((competition) => (
+          <label key={competition.key} className="competition-filter">
+            <input
+              type="radio"
+              name="squad-competition"
+              checked={selectedCompetition === competition.key}
+              onChange={() => setSelectedCompetition(competition.key)}
+            />
+            <span>{competition.label}</span>
+          </label>
+        ))}
+      </div>
+
+      <label className="search-field">
+        <span>Elegir equipo</span>
+        <select
+          value={selectedTeamSlug}
+          onChange={(event) => setSelectedTeamSlug(event.target.value)}
+          disabled={teamsLoading || teams.length === 0}
+          className="search-field__select"
+        >
+          {teams.length === 0 && <option value="">Sin equipos disponibles</option>}
+          {teams.map((team) => (
+            <option key={team.teamSlug} value={team.teamSlug}>
+              {team.teamName}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {teamsLoading && <p className="status">Cargando equipos...</p>}
+      {teamsError && <p className="status status--error">{teamsError}</p>}
+      {squadLoading && <p className="status">Cargando plantel...</p>}
+      {squadError && <p className="status status--error">{squadError}</p>}
+
+      {!teamsLoading && !teamsError && selectedTeam && (
+        <div className="squad-card__header">
+          <div className="team-cell">
+            <TeamBadge
+              teamSlug={selectedTeam.teamSlug}
+              competitionKey={selectedCompetition}
+              teamName={selectedTeam.teamName}
+              logoManifest={logoManifest}
+            />
+            <div>
+              <strong>{selectedTeam.teamName}</strong>
+              <p className="competition-helper">Jugadores ordenados por ultimo numero conocido.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!squadLoading && !squadError && squad && (
+        <>
+          {squad.players.length === 0 && (
+            <p className="status">No encontramos jugadores cargados para este equipo.</p>
+          )}
+
+          {squad.players.length > 0 && (
+            <div className="squad-grid">
+              {squad.players.map((player) => (
+                <article
+                  key={`${squad.teamSlug}-${player.playerName}-${player.shirtNumber ?? 'sn'}`}
+                  className="squad-player"
+                >
+                  <div className="squad-player__number">
+                    {player.shirtNumber != null ? player.shirtNumber : '--'}
+                  </div>
+                  <div>
+                    <h3>{player.playerName}</h3>
+                    <p>{player.positionLabel || 'Posicion no informada'}</p>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function SeasonSelectorSection({
+  matches,
+  loading,
+  error,
+  onOpenMatch,
+  logoManifest,
+  favoriteTeamSlugs,
+}) {
   const [query, setQuery] = useState('');
   const [selectedCompetition, setSelectedCompetition] = useState('laliga');
   const [visibleUpcomingRounds, setVisibleUpcomingRounds] = useState(1);
   const [visiblePastRounds, setVisiblePastRounds] = useState(0);
+  const [oddsByMatchId, setOddsByMatchId] = useState({});
 
   function handleCompetitionChange(nextCompetition) {
     setSelectedCompetition(nextCompetition);
@@ -1410,7 +1860,19 @@ function SeasonSelectorSection({ matches, loading, error, onOpenMatch, logoManif
     });
   }, [matches, normalizedQuery, selectedCompetition]);
 
-  const { overdueMatches, upcomingGroups, pastGroups } = useMemo(() => {
+  const { favoriteMatches, overdueMatches, upcomingGroups, pastGroups } = useMemo(() => {
+    const favorite = filteredMatches
+      .filter((match) => favoriteTeamSlugs.includes(match.homeSlug) || favoriteTeamSlugs.includes(match.awaySlug))
+      .filter((match) => {
+        const status = getEffectiveMatchStatus(match);
+        return status !== 'finished' && status !== 'suspended';
+      })
+      .sort((left, right) => Date.parse(left.date) - Date.parse(right.date))
+      .filter(
+        (match, index, list) =>
+          list.findIndex((candidate) => candidate.id === match.id) === index,
+      )
+      .slice(0, 3);
     const overdue = filteredMatches
       .filter((match) => getEffectiveMatchStatus(match) === 'suspended')
       .sort((left, right) => Date.parse(left.date) - Date.parse(right.date));
@@ -1436,19 +1898,80 @@ function SeasonSelectorSection({ matches, loading, error, onOpenMatch, logoManif
       .sort((left, right) => Date.parse(right.firstDate) - Date.parse(left.firstDate));
 
     return {
+      favoriteMatches: favorite,
       overdueMatches: overdue,
       upcomingGroups: upcoming,
       pastGroups: past,
     };
-  }, [filteredMatches]);
+  }, [favoriteTeamSlugs, filteredMatches]);
 
   const visibleUpcomingGroupList = upcomingGroups.slice(0, visibleUpcomingRounds);
   const visiblePastGroupList = [...pastGroups.slice(0, visiblePastRounds)].reverse();
+  const visibleMatchIdsForOdds = useMemo(() => {
+    const ids = new Set();
+
+    favoriteMatches.forEach((match) => ids.add(match.id));
+    overdueMatches.forEach((match) => ids.add(match.id));
+    visibleUpcomingGroupList.forEach((group) => {
+      group.matches.forEach((match) => {
+        if (getEffectiveMatchStatus(match) !== 'finished') {
+          ids.add(match.id);
+        }
+      });
+    });
+
+    return [...ids];
+  }, [favoriteMatches, overdueMatches, visibleUpcomingGroupList]);
 
   useEffect(() => {
     setVisibleUpcomingRounds(1);
     setVisiblePastRounds(0);
   }, [normalizedQuery, selectedCompetition]);
+
+  useEffect(() => {
+    const missingIds = visibleMatchIdsForOdds.filter((matchId) => !(matchId in oddsByMatchId));
+
+    if (missingIds.length === 0) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    fetch(`/api/odds/betsson?matchIds=${encodeURIComponent(missingIds.join(','))}`)
+      .then(async (response) => {
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.detail || 'No pudimos cargar las cuotas de Betsson.');
+        }
+
+        return response.json();
+      })
+      .then((data) => {
+        if (!cancelled) {
+          setOddsByMatchId((current) => ({
+            ...current,
+            ...(data.oddsByMatchId ?? {}),
+          }));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setOddsByMatchId((current) => {
+            const next = { ...current };
+
+            missingIds.forEach((matchId) => {
+              next[matchId] = null;
+            });
+
+            return next;
+          });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [oddsByMatchId, visibleMatchIdsForOdds]);
 
   return (
     <section className="team-card season-card">
@@ -1520,11 +2043,21 @@ function SeasonSelectorSection({ matches, loading, error, onOpenMatch, logoManif
       {loading && <p className="status">Cargando proximos partidos...</p>}
       {error && <p className="status status--error">{error}</p>}
 
+      {!loading && !error && favoriteMatches.length > 0 && (
+        <FavoriteMatchesSection
+          matches={favoriteMatches}
+          onOpenMatch={onOpenMatch}
+          logoManifest={logoManifest}
+          oddsByMatchId={oddsByMatchId}
+        />
+      )}
+
       {!loading && !error && overdueMatches.length > 0 && (
         <OverdueMatchesSection
           matches={overdueMatches}
           onOpenMatch={onOpenMatch}
           logoManifest={logoManifest}
+          oddsByMatchId={oddsByMatchId}
         />
       )}
 
@@ -1564,6 +2097,7 @@ function SeasonSelectorSection({ matches, loading, error, onOpenMatch, logoManif
               group={group}
               onOpenMatch={onOpenMatch}
               logoManifest={logoManifest}
+              oddsByMatchId={oddsByMatchId}
             />
           ))}
         </div>
@@ -1578,6 +2112,7 @@ function SeasonSelectorSection({ matches, loading, error, onOpenMatch, logoManif
                 group={group}
                 onOpenMatch={onOpenMatch}
                 logoManifest={logoManifest}
+                oddsByMatchId={oddsByMatchId}
               />
             ))}
           </div>
@@ -1628,6 +2163,7 @@ export default function App() {
   const [seasonMatches, setSeasonMatches] = useState([]);
   const [seasonLoading, setSeasonLoading] = useState(true);
   const [seasonError, setSeasonError] = useState('');
+  const [favoriteTeamSlugs, setFavoriteTeamSlugs] = useState([]);
   const [logoManifest, setLogoManifest] = useState({
     laliga: {},
     premier: {},
@@ -1635,6 +2171,10 @@ export default function App() {
     argentina: {},
     seriea: {},
   });
+
+  useEffect(() => {
+    setFavoriteTeamSlugs(readFavoriteTeamSlugsFromCookie());
+  }, []);
 
   useEffect(() => {
     if (document.querySelector('link[data-laliga-shields="true"]')) {
@@ -1734,11 +2274,27 @@ export default function App() {
 
         return response.json();
       })
-      .then((detail) => {
+      .then(async (detail) => {
+        let betssonOdds = null;
+
+        try {
+          const oddsResponse = await fetch(
+            `/api/odds/betsson?matchIds=${encodeURIComponent(selectedMatchId)}`,
+          );
+
+          if (oddsResponse.ok) {
+            const oddsData = await oddsResponse.json();
+            betssonOdds = oddsData?.oddsByMatchId?.[selectedMatchId] ?? null;
+          }
+        } catch {
+          betssonOdds = null;
+        }
+
         if (!cancelled) {
           const selectedMatch = seasonMatches.find((match) => match.id === selectedMatchId);
           setSelectedMatchDetail({
             ...detail,
+            betssonOdds,
             competitionKey: selectedMatch?.competitionKey ?? 'laliga',
           });
           setDetailLoading(false);
@@ -1756,6 +2312,17 @@ export default function App() {
     };
   }, [seasonMatches, selectedMatchId]);
 
+  function handleToggleFavoriteTeam(teamSlug) {
+    setFavoriteTeamSlugs((current) => {
+      const nextFavorites = current.includes(teamSlug)
+        ? current.filter((favoriteSlug) => favoriteSlug !== teamSlug)
+        : [...current, teamSlug];
+
+      writeFavoriteTeamSlugsToCookie(nextFavorites);
+      return nextFavorites;
+    });
+  }
+
   return (
     <main className="app-shell">
       <section className="hero">
@@ -1769,7 +2336,10 @@ export default function App() {
         error={seasonError}
         onOpenMatch={setSelectedMatchId}
         logoManifest={logoManifest}
+        favoriteTeamSlugs={favoriteTeamSlugs}
       />
+
+      <SquadSection logoManifest={logoManifest} />
 
       <MatchDetailModal
         detail={selectedMatchDetail}
@@ -1777,6 +2347,8 @@ export default function App() {
         error={detailError}
         onClose={() => setSelectedMatchId('')}
         logoManifest={logoManifest}
+        favoriteTeamSlugs={favoriteTeamSlugs}
+        onToggleFavoriteTeam={handleToggleFavoriteTeam}
       />
     </main>
   );

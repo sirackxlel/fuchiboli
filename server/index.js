@@ -1,5 +1,8 @@
 import express from 'express';
+import { getMatchesForOdds } from './repositories/matchOddsRepository.js';
 import {
+  getSquadForTeam,
+  getTeamsForCompetitionKey,
   getArgentinaSeasonMatches,
   getArgentinaStandings,
   getBundesligaSeasonMatches,
@@ -14,6 +17,8 @@ import {
   getUpcomingMatchesGrouped,
   resolveTeamSlug,
 } from './repositories/readRepository.js';
+import { getBet365OddsForMatches } from './services/bet365OddsService.js';
+import { getBetssonOddsForMatches } from './services/betssonOddsService.js';
 
 const app = express();
 const port = Number(process.env.PORT ?? 3001);
@@ -51,6 +56,39 @@ app.get('/api/matches', (_request, response) => {
   } catch (error) {
     response.status(500).json({
       error: 'No pudimos obtener el calendario desde la base.',
+      detail: error.message,
+    });
+  }
+});
+
+app.get('/api/teams/:competitionKey', (request, response) => {
+  try {
+    response.json({
+      teams: getTeamsForCompetitionKey(request.params.competitionKey),
+    });
+  } catch (error) {
+    response.status(400).json({
+      error: 'No pudimos obtener los equipos de esa competencia.',
+      detail: error.message,
+    });
+  }
+});
+
+app.get('/api/team/:teamSlug/players', (request, response) => {
+  try {
+    const squad = getSquadForTeam(request.params.teamSlug);
+
+    if (!squad) {
+      response.status(404).json({
+        error: 'Equipo no encontrado.',
+      });
+      return;
+    }
+
+    response.json(squad);
+  } catch (error) {
+    response.status(500).json({
+      error: 'No pudimos obtener el plantel del equipo.',
       detail: error.message,
     });
   }
@@ -170,6 +208,62 @@ app.get('/api/season/serie-a/matches', (_request, response) => {
   } catch (error) {
     response.status(500).json({
       error: 'No pudimos obtener el calendario completo de Serie A.',
+      detail: error.message,
+    });
+  }
+});
+
+app.get('/api/odds/bet365', async (request, response) => {
+  try {
+    const rawMatchIds = String(request.query.matchIds ?? '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+
+    if (rawMatchIds.length === 0) {
+      response.json({
+        oddsByMatchId: {},
+      });
+      return;
+    }
+
+    const matches = getMatchesForOdds(rawMatchIds);
+    const oddsByMatchId = await getBet365OddsForMatches(matches);
+
+    response.json({
+      oddsByMatchId,
+    });
+  } catch (error) {
+    response.status(500).json({
+      error: 'No pudimos obtener las cuotas de Bet365.',
+      detail: error.message,
+    });
+  }
+});
+
+app.get('/api/odds/betsson', async (request, response) => {
+  try {
+    const rawMatchIds = String(request.query.matchIds ?? '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+
+    if (rawMatchIds.length === 0) {
+      response.json({
+        oddsByMatchId: {},
+      });
+      return;
+    }
+
+    const matches = getMatchesForOdds(rawMatchIds);
+    const oddsByMatchId = await getBetssonOddsForMatches(matches);
+
+    response.json({
+      oddsByMatchId,
+    });
+  } catch (error) {
+    response.status(500).json({
+      error: 'No pudimos obtener las cuotas de Betsson.',
       detail: error.message,
     });
   }

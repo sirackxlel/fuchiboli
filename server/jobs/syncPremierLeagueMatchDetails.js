@@ -282,6 +282,12 @@ const matches = db
         ) AS lineup_count,
         (
           SELECT COUNT(*)
+          FROM lineup_players lp
+          JOIN lineups l ON l.id = lp.lineup_id
+          WHERE l.match_id = m.id
+        ) AS lineup_player_count,
+        (
+          SELECT COUNT(*)
           FROM match_team_stats mts
           WHERE mts.match_id = m.id
             AND mts.source_name = 'PREMIER'
@@ -314,7 +320,8 @@ try {
   let itemsSaved = 0;
 
   for (const match of matches) {
-    const alreadyHasLineups = Number(match.lineup_count) >= 2;
+    const alreadyHasLineups =
+      Number(match.lineup_count) >= 2 && Number(match.lineup_player_count) > 0;
     const alreadyHasStats = Number(match.stats_count) > 0;
     const alreadyHasEvents = Number(match.event_count) > 0;
     const shouldHaveEvents = match.status === 'finished';

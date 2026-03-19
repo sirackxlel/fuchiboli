@@ -12,8 +12,168 @@ const TEAM_ROUTE_TO_SLUG = {
   'real-betis': 'real-betis',
 };
 
+const COMPETITION_TEAM_CONFIG = {
+  laliga: {
+    competitionSlug: 'laliga-ea-sports-2025-2026',
+    seasonSlug: 'temporada-2025-2026',
+  },
+  premier: {
+    competitionSlug: 'premier-league-2025-2026',
+    seasonSlug: '2025',
+  },
+  bundesliga: {
+    competitionSlug: 'bundesliga-2025-2026',
+    seasonSlug: 'DFL-SEA-0001K9',
+  },
+  argentina: {
+    competitionSlug: 'liga-profesional-apertura-2026',
+    seasonSlug: '2026',
+  },
+  seriea: {
+    competitionSlug: 'serie-a-2025-2026',
+    seasonSlug: '2025/2026',
+  },
+};
+
+function normalizePlayerName(value) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function resolveTeamSlug(teamKey) {
   return TEAM_ROUTE_TO_SLUG[teamKey] ?? null;
+}
+
+export function getTeamsForCompetitionKey(competitionKey) {
+  const config = COMPETITION_TEAM_CONFIG[competitionKey];
+
+  if (!config) {
+    throw new Error('Competencia no soportada.');
+  }
+
+  return db
+    .prepare(
+      `
+        SELECT DISTINCT
+          t.slug AS team_slug,
+          t.name AS team_name
+        FROM matches m
+        JOIN competitions c ON c.id = m.competition_id
+        JOIN teams t
+          ON t.id = m.home_team_id
+          OR t.id = m.away_team_id
+        WHERE c.slug = ?
+          AND m.season_slug = ?
+        ORDER BY t.name ASC
+      `,
+    )
+    .all(config.competitionSlug, config.seasonSlug)
+    .map((team) => ({
+      teamSlug: team.team_slug,
+      teamName: team.team_name,
+    }));
+}
+
+export function getSquadForTeam(teamSlug) {
+  const team = db
+    .prepare(
+      `
+        SELECT id, slug, name
+        FROM teams
+        WHERE slug = ?
+      `,
+    )
+    .get(teamSlug);
+
+  if (!team) {
+    return null;
+  }
+
+  const rows = db
+    .prepare(
+      `
+        SELECT
+          p.id AS player_id,
+          p.name AS player_name,
+          p.position AS default_position,
+          lp.shirt_number,
+          lp.position_label,
+          l.id AS lineup_id
+        FROM players p
+        LEFT JOIN lineup_players lp ON lp.player_id = p.id
+        LEFT JOIN lineups l ON l.id = lp.lineup_id
+        WHERE p.team_id = ?
+        ORDER BY l.id DESC, lp.sort_order ASC, p.id DESC
+      `,
+    )
+    .all(team.id);
+
+  const seen = new Map();
+
+  for (const row of rows) {
+    const key = normalizePlayerName(row.player_name);
+
+    if (!key) {
+      continue;
+    }
+
+    const nextPlayer = {
+      playerName: row.player_name,
+      shirtNumber: Number.isFinite(row.shirt_number) ? row.shirt_number : null,
+      positionLabel: row.position_label ?? row.default_position ?? null,
+    };
+
+    if (!seen.has(key)) {
+      seen.set(key, nextPlayer);
+      continue;
+    }
+
+    const currentPlayer = seen.get(key);
+
+    if (currentPlayer.shirtNumber == null && nextPlayer.shirtNumber != null) {
+      seen.set(key, {
+        ...currentPlayer,
+        shirtNumber: nextPlayer.shirtNumber,
+        positionLabel: currentPlayer.positionLabel ?? nextPlayer.positionLabel,
+      });
+    } else if (!currentPlayer.positionLabel && nextPlayer.positionLabel) {
+      seen.set(key, {
+        ...currentPlayer,
+        positionLabel: nextPlayer.positionLabel,
+      });
+    }
+  }
+
+  const players = [...seen.values()].sort((left, right) => {
+    if (left.shirtNumber == null && right.shirtNumber == null) {
+      return left.playerName.localeCompare(right.playerName);
+    }
+
+    if (left.shirtNumber == null) {
+      return 1;
+    }
+
+    if (right.shirtNumber == null) {
+      return -1;
+    }
+
+    if (left.shirtNumber !== right.shirtNumber) {
+      return left.shirtNumber - right.shirtNumber;
+    }
+
+    return left.playerName.localeCompare(right.playerName);
+  });
+
+  return {
+    teamSlug: team.slug,
+    teamName: team.name,
+    players,
+  };
 }
 
 export function getUpcomingMatchesForTeam(teamSlug) {
