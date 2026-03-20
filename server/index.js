@@ -76,7 +76,10 @@ app.get('/api/teams/:competitionKey', (request, response) => {
 
 app.get('/api/team/:teamSlug/players', (request, response) => {
   try {
-    const squad = getSquadForTeam(request.params.teamSlug);
+    const squad = getSquadForTeam(
+      request.params.teamSlug,
+      typeof request.query.competition === 'string' ? request.query.competition : null,
+    );
 
     if (!squad) {
       response.status(404).json({

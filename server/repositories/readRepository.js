@@ -4,6 +4,7 @@ import {
   getLatestStandingsTable,
   saveStandingsSnapshot,
 } from './standingsRepository.js';
+import { getTeamSquadProfiles } from './squadProfilesRepository.js';
 
 const TEAM_ROUTE_TO_SLUG = {
   boca: 'boca-juniors',
@@ -45,6 +46,41 @@ function normalizePlayerName(value) {
     .trim();
 }
 
+function normalizeSquadPositionLabel(value) {
+  const label = String(value ?? '').trim();
+
+  if (!label) {
+    return null;
+  }
+
+  const normalized = label
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!normalized) {
+    return null;
+  }
+
+  if (/^\d+$/.test(normalized)) {
+    return null;
+  }
+
+  if (
+    normalized === 'minuto' ||
+    normalized === 'minute' ||
+    normalized === 'suplente' ||
+    normalized === 'starter' ||
+    normalized === 'bench'
+  ) {
+    return null;
+  }
+
+  return label;
+}
+
 export function resolveTeamSlug(teamKey) {
   return TEAM_ROUTE_TO_SLUG[teamKey] ?? null;
 }
@@ -55,6 +91,8 @@ export function getTeamsForCompetitionKey(competitionKey) {
   if (!config) {
     throw new Error('Competencia no soportada.');
   }
+
+  const competitionLogos = getCompetitionLogoMap(config.competitionSlug);
 
   return db
     .prepare(
@@ -76,10 +114,11 @@ export function getTeamsForCompetitionKey(competitionKey) {
     .map((team) => ({
       teamSlug: team.team_slug,
       teamName: team.team_name,
+      logoUrl: competitionLogos.get(team.team_slug) ?? null,
     }));
 }
 
-export function getSquadForTeam(teamSlug) {
+export function getSquadForTeam(teamSlug, competitionKey = null) {
   const team = db
     .prepare(
       `
@@ -94,6 +133,46 @@ export function getSquadForTeam(teamSlug) {
     return null;
   }
 
+  const competitionSlug = competitionKey
+    ? (COMPETITION_TEAM_CONFIG[competitionKey]?.competitionSlug ?? null)
+    : null;
+  const squadProfiles = getTeamSquadProfiles(team.id, competitionSlug);
+
+  if (squadProfiles.length > 0) {
+    const players = squadProfiles
+      .map((row) => ({
+        playerName: row.player_name,
+        shirtNumber: Number.isFinite(row.shirt_number) ? row.shirt_number : null,
+        positionLabel: normalizeSquadPositionLabel(row.position_label),
+        photoUrl: row.photo_url ?? null,
+      }))
+      .sort((left, right) => {
+        if (left.shirtNumber == null && right.shirtNumber == null) {
+          return left.playerName.localeCompare(right.playerName);
+        }
+
+        if (left.shirtNumber == null) {
+          return 1;
+        }
+
+        if (right.shirtNumber == null) {
+          return -1;
+        }
+
+        if (left.shirtNumber !== right.shirtNumber) {
+          return left.shirtNumber - right.shirtNumber;
+        }
+
+        return left.playerName.localeCompare(right.playerName);
+      });
+
+    return {
+      teamSlug: team.slug,
+      teamName: team.name,
+      players,
+    };
+  }
+
   const rows = db
     .prepare(
       `
@@ -105,8 +184,8 @@ export function getSquadForTeam(teamSlug) {
           lp.position_label,
           l.id AS lineup_id
         FROM players p
-        LEFT JOIN lineup_players lp ON lp.player_id = p.id
-        LEFT JOIN lineups l ON l.id = lp.lineup_id
+        JOIN lineup_players lp ON lp.player_id = p.id
+        JOIN lineups l ON l.id = lp.lineup_id
         WHERE p.team_id = ?
         ORDER BY l.id DESC, lp.sort_order ASC, p.id DESC
       `,
@@ -125,7 +204,10 @@ export function getSquadForTeam(teamSlug) {
     const nextPlayer = {
       playerName: row.player_name,
       shirtNumber: Number.isFinite(row.shirt_number) ? row.shirt_number : null,
-      positionLabel: row.position_label ?? row.default_position ?? null,
+      positionLabel:
+        normalizeSquadPositionLabel(row.position_label) ??
+        normalizeSquadPositionLabel(row.default_position),
+      photoUrl: null,
     };
 
     if (!seen.has(key)) {

@@ -304,9 +304,9 @@ function BetssonOddsLine({ odds }) {
     <div className="fixture__odds" aria-label="Cuotas Betsson">
       <span className="fixture__odds-bookmaker">Betsson</span>
       <div className="fixture__odds-values">
-        <span>1 {formatBetssonOdd(odds.home)}</span>
+        <span>{formatBetssonOdd(odds.home)}</span>
         <span>X {formatBetssonOdd(odds.draw)}</span>
-        <span>2 {formatBetssonOdd(odds.away)}</span>
+        <span>{formatBetssonOdd(odds.away)}</span>
       </div>
     </div>
   );
@@ -1701,7 +1701,7 @@ function SquadSection({ logoManifest }) {
     setSquadLoading(true);
     setSquadError('');
 
-    fetch(`/api/team/${selectedTeamSlug}/players`)
+    fetch(`/api/team/${selectedTeamSlug}/players?competition=${selectedCompetition}`)
       .then(async (response) => {
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
@@ -1781,6 +1781,7 @@ function SquadSection({ logoManifest }) {
               competitionKey={selectedCompetition}
               teamName={selectedTeam.teamName}
               logoManifest={logoManifest}
+              logoUrl={selectedTeam.logoUrl}
             />
             <div>
               <strong>{selectedTeam.teamName}</strong>
@@ -1803,8 +1804,21 @@ function SquadSection({ logoManifest }) {
                   key={`${squad.teamSlug}-${player.playerName}-${player.shirtNumber ?? 'sn'}`}
                   className="squad-player"
                 >
-                  <div className="squad-player__number">
-                    {player.shirtNumber != null ? player.shirtNumber : '--'}
+                  <div className="squad-player__media">
+                    {player.photoUrl ? (
+                      <img
+                        className="squad-player__photo"
+                        src={player.photoUrl}
+                        alt={`Foto de ${player.playerName}`}
+                      />
+                    ) : (
+                      <span className="squad-player__photo-fallback">
+                        {getInitials(player.playerName)}
+                      </span>
+                    )}
+                    <div className="squad-player__number">
+                      {player.shirtNumber != null ? player.shirtNumber : '--'}
+                    </div>
                   </div>
                   <div>
                     <h3>{player.playerName}</h3>

@@ -94,6 +94,25 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_standings_entries_team_slug
     ON standings_entries (team_slug);
+
+  CREATE TABLE IF NOT EXISTS team_squad_profiles (
+    id INTEGER PRIMARY KEY,
+    team_id INTEGER NOT NULL,
+    competition_slug TEXT NOT NULL,
+    player_name TEXT NOT NULL,
+    shirt_number INTEGER,
+    position_label TEXT,
+    photo_url TEXT,
+    source_name TEXT NOT NULL,
+    source_url TEXT,
+    sort_order INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (team_id) REFERENCES teams(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_team_squad_profiles_team
+    ON team_squad_profiles (team_id, competition_slug, sort_order ASC);
 `);
 
 function ensureMatchEventsTable() {
