@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 
-const db = new Database('C:/Users/Usuario/base_futbol.db');
+const dbPath = process.env.DB_PATH ?? 'C:/Users/Usuario/base_futbol.db';
+const db = new Database(dbPath);
 
 db.pragma('busy_timeout = 10000');
 db.pragma('foreign_keys = ON');

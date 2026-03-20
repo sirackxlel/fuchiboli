@@ -1,4 +1,6 @@
 import express from 'express';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { getMatchesForOdds } from './repositories/matchOddsRepository.js';
 import {
   getSquadForTeam,
@@ -22,6 +24,9 @@ import { getBetssonOddsForMatches } from './services/betssonOddsService.js';
 
 const app = express();
 const port = Number(process.env.PORT ?? 3001);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const distPath = path.resolve(__dirname, '..', 'dist');
 
 app.get('/api/health', (_request, response) => {
   response.json({ ok: true });
@@ -291,6 +296,17 @@ app.get('/api/match/:matchId', async (request, response) => {
       detail: error.message,
     });
   }
+});
+
+app.use(express.static(distPath));
+
+app.get('*', (request, response, next) => {
+  if (request.path.startsWith('/api/')) {
+    next();
+    return;
+  }
+
+  response.sendFile(path.join(distPath, 'index.html'));
 });
 
 app.listen(port, () => {

@@ -1,0 +1,15 @@
+services:
+  fuchiboli:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fuchiboli
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    environment:
+      NODE_ENV: production
+      PORT: 5173
+      DB_PATH: /data/base_futbol.db
+    volumes:
+      - C:/Users/Usuario/base_futbol.db:/data/base_futbol.db

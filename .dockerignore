@@ -1,0 +1,16 @@
+node_modules
+dist
+.git
+.gitignore
+betsson_*.json
+*_dump.html
+*_tables_dump.html
+*_calendar_dump.html
+scorecast_*.html
+premier_*.html
+seriea_*.html
+lpf_*.html
+afa_*.html
+edge_dump.html
+espn-boca.html
+laliga-betis.html
